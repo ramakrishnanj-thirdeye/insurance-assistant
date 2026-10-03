@@ -61,18 +61,21 @@ def extract_coverage_draft(sections: list[PolicySection]) -> CoverageMatrix: ...
    comparison answers cite these labels.
 
 ## Acceptance criteria
-- [ ] AC-03-01 Every file parses to exactly 15 sections; product and policy type match policies.csv (10/10).
-- [ ] AC-03-02 Common detection returns exactly sections {1, 3, 6, 7, 8, 11, 12, 13, 14, 15}.
-- [ ] AC-03-03 `build_chunks` returns 62 chunks: 12 with product ALL, 50 product chunks (5 per product).
-- [ ] AC-03-04 Every `embed_text` starts with its header; every `citation_label` matches config/guardrails.yaml `citation_format`.
-- [ ] AC-03-05 `config/coverage_matrix.yaml` validates; every product in policies.csv is present; every exclusion list matches the §9 text split on commas (unit test reads the wordings).
-- [ ] AC-03-06 Manual gate: coverage matrix reviewed against the wordings and `status: reviewed` committed.
-- [ ] AC-03-07 `coverage_grid` meets AC-01-05 (shared test).
-- [ ] AC-03-08 `extract_coverage_draft` agrees with the committed matrix on ≥ 90% of fields (reported, not gated).
-- [ ] AC-03-09 `get_coverage("Health Secure Plus", "maternity")` returns status covered, 24 months, label `[Health Secure Plus §5 Maternity]`.
+- [x] AC-03-01 Every file parses to exactly 15 sections; product and policy type match policies.csv (10/10).
+- [x] AC-03-02 Common detection returns exactly sections {1, 3, 6, 7, 8, 11, 12, 13, 14, 15}.
+- [x] AC-03-03 `build_chunks` returns 62 chunks: 12 with product ALL, 50 product chunks (5 per product).
+- [x] AC-03-04 Every `embed_text` starts with its header; every `citation_label` matches config/guardrails.yaml `citation_format`.
+- [x] AC-03-05 `config/coverage_matrix.yaml` validates; every product in policies.csv is present; every exclusion list matches the §9 text split on commas (unit test reads the wordings).
+- [x] AC-03-06 Manual gate: coverage matrix reviewed against the wordings and `status: reviewed` committed.
+- [x] AC-03-07 `coverage_grid` meets AC-01-05 (shared test).
+- [~] deferred: 3-day scope. AC-03-08 `extract_coverage_draft` agrees with the committed matrix on ≥ 90% of fields (reported, not gated).
+- [x] AC-03-09 `get_coverage("Health Secure Plus", "maternity")` returns status covered, 24 months, label `[Health Secure Plus §5 Maternity]`.
 
 ## Eval hooks
 Comparisons slice (10 items) reads gold from the reviewed matrix.
 
 ## Open questions
 - Critical illness list for Critical Care Elite (#6) and specified-disease list (assumption A2) need business confirmation.
+  - Resolved for the PoC (2026-10-04): assumptions A1 (accident-exempt diagnoses), A2 (specified diseases:
+    Cataract, Kidney Stone) and A3 (Critical Care Elite: Cardiac Procedure only) are accepted as written in
+    config/coverage_matrix.yaml. Business confirmation is still needed before production.

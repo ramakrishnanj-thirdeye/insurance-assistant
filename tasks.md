@@ -16,7 +16,9 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 
 ## M2 Policy knowledge + retrieval — specs 03, 04
 - [ ] Qdrant / fastembed spike → ADR-002
-- [ ] Parser, chunks, coverage loader; human review of config/coverage_matrix.yaml (AC-03-06)
+- [x] Parser, chunks, coverage loader, `get_coverage` (spec 03)
+- [x] Human review of config/coverage_matrix.yaml against the wordings, then `status: reviewed` (AC-03-06)
+- [ ] Issue: AC-03-08 deferred (3-day scope). `extract_coverage_draft` and the CLI behind `make coverage-draft` are not built, so the target fails until then
 - [ ] Index build; search pipeline with ablation switches
 - [ ] Write policy_clauses.jsonl (50) + 10 unanswerable probes; tune rerank threshold
 - **Gate:** AC-03-*, AC-04-*; clause slice recall@5 ≥ 0.95; ablation report exists
@@ -65,7 +67,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] #3 Required documents matrix (config/required_documents.yaml)
 - [ ] #4 Keep and flag anomalies (ADR-007)
 - [ ] #5 Fixed as-of date 2026-10-01 (ADR-007)
-- [ ] #6 Critical Care Elite: Cardiac Procedure only (config/coverage_matrix.yaml, assumption A3)
+- [x] #6 Critical Care Elite: Cardiac Procedure only (config/coverage_matrix.yaml, assumption A3). Assumptions A1 to A3 accepted for the PoC on 2026-10-04; confirm with the business before production
 - [ ] #7 Deductible before co-pay (spec 01)
 - [ ] #8 All three personas in scope
 - [ ] #9 Qdrant embedded, confirmed by the M2 spike (ADR-002)

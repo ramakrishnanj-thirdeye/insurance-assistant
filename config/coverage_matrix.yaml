@@ -5,7 +5,7 @@
 # Only sections 2, 4, 5, 9 and 10 differ between products; sections 1, 3, 6-8 and 11-15 are identical
 # boilerplate and live once under common_terms.
 version: 1
-status: draft
+status: reviewed
 months_to_days: 30.4167          # 24 months = 730 days, 36 = 1095, 48 = 1460 (rounded)
 
 products:
@@ -154,7 +154,8 @@ products:
   Global Travel Secure:
     policy_type: Travel
     file: Global_Travel_Secure.txt
-    sum_insured_options_inr: [500000, 1000000]   # "equivalent limits"
+    sum_insured_options_inr: [500000, 1000000]
+    sum_insured_text: "₹5,00,000 / ₹10,00,000 equivalent limits."
     waiting: {initial_days: 0, text: "Trip-specific coverage begins as defined in schedule."}
     maternity:
       status: conditional
@@ -170,6 +171,7 @@ products:
     policy_type: Travel
     file: Student_Travel_Protect.txt
     sum_insured_options_inr: [500000, 1000000]
+    sum_insured_text: "₹5,00,000 / ₹10,00,000 equivalent limits."
     waiting: {initial_days: 0, text: "Coverage tied to enrolled travel period."}
     maternity:
       status: conditional

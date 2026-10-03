@@ -1,12 +1,15 @@
-"""Policy knowledge models (spec 03). Only the coverage matrix is implemented so far (spec 01 needs it)."""
+"""Policy knowledge models (spec 03): wording sections, retrieval chunks, coverage matrix and cells."""
 
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from insurai.tools.schemas import SourceRef
+
 PolicyType = Literal["Health", "Motor", "Travel"]
 CoverageStatus = Literal["covered", "conditional", "not_covered", "not_applicable", "needs_review"]
 Basis = Literal["document", "assumption"]
+CoverageAttribute = Literal["sum_insured", "waiting_period", "maternity", "exclusions", "claim_procedure"]
 
 STAR = "*"
 
@@ -109,3 +112,57 @@ class CoverageGridRow(BaseModel):
     section_no: int | None
     coverage_basis: Basis
     reason: str | None
+
+
+class PolicySection(BaseModel):
+    """One numbered section of a policy wording."""
+
+    model_config = ConfigDict(frozen=True)
+
+    product: str
+    policy_type: PolicyType
+    section_no: int
+    section_name: str
+    text: str
+    content_hash: str
+    source_path: str
+
+
+class PolicyChunk(BaseModel):
+    """A retrieval unit: one product section, one common section (product "ALL") or one FAQ pair."""
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk_id: str  # "health-secure-plus-s5", "all-s13", "all-s15-q2"
+    product: str  # canonical product name or "ALL"
+    policy_type: str | None  # None for ALL
+    section_no: int
+    section_name: str
+    is_common: bool
+    text: str  # clause text only
+    header: str  # "Health Secure Plus (Health) › §5 Maternity"
+    embed_text: str  # f"{header}: {text}", what gets embedded
+    citation_label: str  # "[Health Secure Plus §5 Maternity]" / "[All products §13 Human Review]"
+    content_hash: str
+    source_path: str
+
+
+class CoverageCell(BaseModel):
+    """One product × attribute answer from the coverage matrix, cited to its wording section."""
+
+    model_config = ConfigDict(frozen=True)
+
+    product: str
+    policy_type: PolicyType
+    attribute: CoverageAttribute
+    section_no: int
+    section_name: str
+    status: CoverageStatus | None = None  # maternity only
+    waiting_months: int | None = None  # maternity waiting
+    waiting_days: int | None = None  # waiting_period: initial waiting days
+    specified_disease_months: int | None = None  # waiting_period
+    pre_existing_months: int | None = None  # waiting_period
+    amounts_inr: list[int] | None = None  # sum_insured options
+    items: list[str] | None = None  # exclusions
+    text: str  # the clause as worded
+    sources: list[SourceRef]

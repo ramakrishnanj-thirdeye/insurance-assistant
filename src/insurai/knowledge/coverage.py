@@ -1,17 +1,41 @@
-"""Coverage matrix loader and the product × diagnosis grid.
+"""Coverage matrix loader, the product × diagnosis grid and the cited coverage cells.
 
-Spec 03 owns it; spec 01 uses `coverage_grid` to build ref.diagnosis_coverage.
+Spec 03 owns it; spec 01 uses `coverage_grid` to build ref.diagnosis_coverage; `get_coverage` backs the
+get_coverage tool (spec 05).
 """
 
+from functools import lru_cache
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, get_args
 
 import yaml
 
-from insurai.knowledge.schemas import STAR, Basis, CoverageGridRow, CoverageMatrix, CoverageOverride
+from insurai.formatting import inr
+from insurai.knowledge.parse import citation_label, parse_corpus
+from insurai.knowledge.schemas import (
+    STAR,
+    Basis,
+    CoverageAttribute,
+    CoverageCell,
+    CoverageGridRow,
+    CoverageMatrix,
+    CoverageOverride,
+    Product,
+)
 from insurai.observability import get_logger
+from insurai.settings import ROOT, get_settings
+from insurai.tools.schemas import SourceRef
 
 log = get_logger(__name__)
+
+COVERAGE_FILE = ROOT / "config" / "coverage_matrix.yaml"
+ATTRIBUTE_SECTIONS: dict[CoverageAttribute, int] = {
+    "sum_insured": 2,
+    "waiting_period": 4,
+    "maternity": 5,
+    "exclusions": 9,
+    "claim_procedure": 10,
+}
 
 WAITING_SECTION = 4
 ACCIDENT_EXEMPT = "A1_accident_exempt"
@@ -108,3 +132,81 @@ def _condition_wait(ov: CoverageOverride, factor: float) -> _Wait | None:
             _months_to_days(months, factor), ov.basis, f"condition waiting {months} months §{section}"
         )
     return None
+
+
+def get_coverage(product: str | None, attribute: str | None) -> list[CoverageCell]:
+    """Cited coverage cells for one or all products and one or all attributes.
+
+    Product names match the canonical names case-insensitively; alias resolution happens upstream.
+    Raises ValueError for an unknown product or attribute.
+    """
+    matrix = _matrix()
+    products = list(matrix.products)
+    if product is not None:
+        by_lower = {p.lower(): p for p in products}
+        if product.strip().lower() not in by_lower:
+            raise ValueError(f"Unknown product {product!r}; expected one of {products}")
+        products = [by_lower[product.strip().lower()]]
+    attributes: list[CoverageAttribute] = list(get_args(CoverageAttribute))
+    if attribute is not None:
+        if attribute not in attributes:
+            raise ValueError(f"Unknown attribute {attribute!r}; expected one of {attributes}")
+        attributes = [attribute]  # type: ignore[list-item]
+    names = _section_names()
+    return [
+        _cell(p, matrix.products[p], a, names[(p, ATTRIBUTE_SECTIONS[a])])
+        for p in products
+        for a in attributes
+    ]
+
+
+@lru_cache(maxsize=1)
+def _matrix() -> CoverageMatrix:
+    return load_coverage(COVERAGE_FILE)
+
+
+@lru_cache(maxsize=1)
+def _section_names() -> dict[tuple[str, int], str]:
+    """Section names as worded in the policy files, so cell labels equal chunk labels."""
+    return {
+        (s.product, s.section_no): s.section_name for s in parse_corpus(get_settings().paths.policy_docs_dir)
+    }
+
+
+def _cell(product: str, spec: Product, attribute: CoverageAttribute, name: str) -> CoverageCell:
+    section_no = ATTRIBUTE_SECTIONS[attribute]
+    source = SourceRef(
+        kind="policy",
+        label=citation_label(product, section_no, name),
+        product=product,
+        section_no=section_no,
+        section_name=name,
+    )
+    common = {
+        "product": product,
+        "policy_type": spec.policy_type,
+        "attribute": attribute,
+        "section_no": section_no,
+        "section_name": name,
+        "sources": [source],
+    }
+    match attribute:
+        case "sum_insured":
+            text = spec.sum_insured_text or " / ".join(inr(a) for a in spec.sum_insured_options_inr or [])
+            return CoverageCell(**common, amounts_inr=spec.sum_insured_options_inr, text=text)
+        case "waiting_period":
+            w = spec.waiting
+            return CoverageCell(
+                **common,
+                waiting_days=w.initial_days,
+                specified_disease_months=w.specified_disease_months,
+                pre_existing_months=w.pre_existing_months,
+                text=w.text,
+            )
+        case "maternity":
+            m = spec.maternity
+            return CoverageCell(**common, status=m.status, waiting_months=m.waiting_months, text=m.text)
+        case "exclusions":
+            return CoverageCell(**common, items=spec.exclusions, text=", ".join(spec.exclusions))
+        case "claim_procedure":
+            return CoverageCell(**common, text=spec.claim_procedure)
