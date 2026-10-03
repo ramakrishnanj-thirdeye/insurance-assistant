@@ -56,6 +56,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] comparisons.jsonl (10), adversarial.jsonl (25), judge_calibration.jsonl (20)
 - [ ] Runner, reports, baseline, `make eval-fast` gate
 - **Gate:** AC-08-*, AC-11-*; all spec 00 targets met; baseline committed
+- [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair; guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)
 
 ## M8 API, UI, demo — specs 09, 10
 - [ ] Full API with SSE and resume; audit and eval endpoints
