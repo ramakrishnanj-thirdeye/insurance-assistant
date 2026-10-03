@@ -14,8 +14,8 @@ class Entities(BaseModel):
     claim_id: str | None = None; policy_id: str | None = None; customer_id: str | None = None
     hospital_id: str | None = None; product: str | None = None; policy_type: str | None = None
     hospital_name: str | None = None; city: str | None = None
-IntentType = Literal["claim_status", "claim_documents", "claim_interactions", "claim_analysis", "policy_question",
-                     "coverage_compare", "hospital_check", "customer_summary", "analytics", "greeting", "out_of_scope"]
+IntentType = Literal["claim_status", "claim_documents", "claim_interactions", "claim_analysis", "policy_details",
+                     "policy_question", "coverage_compare", "hospital_check", "customer_summary", "analytics", "greeting", "out_of_scope"]
 class Intent(BaseModel):
     id: str; type: IntentType; entities: Entities; sub_question: str
 class Plan(BaseModel):
@@ -56,7 +56,7 @@ attempts=0, turn=turn+1`. Only `messages` and `active_entities` carry across tur
 | input_guard | rules + small LLM | spec 08 input checks; masks PII | blocked → respond (refusal); else resolve_context |
 | resolve_context | deterministic | regex IDs, product gazetteer (config/glossary.yaml, rapidfuzz ≥ 90), pronoun follow-ups from active_entities, ownership pre-check for customer persona | fast path → claim_tools; else planner |
 | planner | LLM (generator), structured output Plan | intents + entities + sub-questions, or a clarification | clarification → respond; else Send(...) one per intent |
-| claim_tools | deterministic | claim_status, claim_documents, claim_interactions, hospital_check, customer_summary | synthesize |
+| claim_tools | deterministic | claim_status, claim_documents, claim_interactions, policy_details (get_policy), hospital_check, customer_summary | synthesize |
 | policy_rag | retrieval | policy_question → search_policy; coverage_compare → get_coverage then search_policy for citations | synthesize |
 | analytics_sql | LLM + validator | run_analytics (spec 02) | synthesize |
 | claim_dossier | subgraph | spec 07 (may interrupt) | synthesize |
@@ -72,7 +72,11 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 2. **Product resolution** for policy_question: explicit product → use it; else active_entities.product (set whenever a claim or policy is resolved: claim → policy → product); else customer persona with exactly one in-force product → that product; several → clarification listing them; agent persona with nothing → clarification "Which product?". Generic questions that apply to all products (e.g. "can approval be guaranteed?") need no product: the planner marks them `policy_type=None, product=None` and retrieval runs unfiltered; common chunks answer them.
 3. **Follow-ups**: "it", "this claim", "its documents", "that policy" resolve to active_entities; a new ID replaces the active one.
 4. **Greeting** → short template, no tools. **out_of_scope** → OUT_OF_SCOPE refusal.
-5. Max 4 intents per message (settings.agent.max_parallel_workers); extra intents → answer the first 4 and say so.
+5. **Schedule vs wording**: policy_details is one policy's schedule from get_policy (recorded status, effective status,
+   sum insured, waiting period, co-pay, deductible); policy_question is what a product's wording says. When a question
+   needs both ("what is my waiting period?" with a policy in context), the planner emits both intents so the answer
+   shows schedule and wording side by side under the spec 08 conflict rule.
+6. Max 4 intents per message (settings.agent.max_parallel_workers); extra intents → answer the first 4 and say so.
 
 ## Prompts (versioned files, IDs logged in trace)
 `config/prompts/planner.md` (15+ few-shot examples covering every intent, multi-intent and clarification),

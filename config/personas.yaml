@@ -9,7 +9,7 @@ personas:
       claims: claims.customer_id = :principal_id
       claim_documents: claim_id IN (SELECT claim_id FROM silver.claims WHERE customer_id = :principal_id)
       customer_interactions: claim_id IN (SELECT claim_id FROM silver.claims WHERE customer_id = :principal_id)
-    hidden_columns: [fraud_risk_score, manual_review_flag, risk_segment]
+    hidden_columns: [fraud_risk_score, manual_review_flag, risk_segment, customer_name]   # names only for agent and supervisor (spec 05)
     tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim]
     analyze_claim_view: customer   # rule names and next steps only; no escalation internals
     can_resume_review: false

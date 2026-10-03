@@ -20,6 +20,7 @@ judgments. The LLM plans, picks tools and explains; it never decides a fact.
 | claim_status | What is the status of claim CLM300210? | Deterministic tool (fast path, no LLM) | 05, 06 |
 | claim_documents | Which documents are missing for CLM300500? | Tool over gold.claim_doc_checklist | 01, 05 |
 | claim_interactions | Has this customer contacted us about CLM300101? | Tool, joined by claim_id only | 05 |
+| policy_details | Is POL218917 in force, and what is its sum insured? | Tool over silver.policies (schedule) | 05, 06 |
 | policy_question | Maternity waiting period under Health Secure Plus? | Hybrid RAG, product filter, rerank | 03, 04 |
 | coverage_compare | Which health plans cover maternity, after how long? | Coverage matrix + RAG citations | 03, 04 |
 | hospital_check | Is HOSP1257 in network? | Tool | 05 |

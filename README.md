@@ -56,8 +56,13 @@ python specs/reference/prototype_build_and_rules.py data/raw CLM300210 CLM300500
 Verify `.claude/settings.json` (permission rule syntax, hook format) against the current Claude Code docs
 before relying on it: https://docs.claude.com/en/docs/claude-code/overview
 
-## Claude Desktop (after M3)
-Add to `claude_desktop_config.json`:
+## MCP server and Claude Desktop
+`make mcp` serves the tools over streamable HTTP on `http://127.0.0.1:8765/mcp`; `make mcp-smoke` checks the
+stdio server against the in-process tools. The persona is fixed per server process: `INSURAI_PERSONA`
+(`claims_agent` by default, `supervisor`, or `customer` with `INSURAI_PRINCIPAL_ID=CUST######`).
+
+Add to `claude_desktop_config.json` (on Windows `%APPDATA%/Claude/claude_desktop_config.json`), with the
+absolute repo path in forward slashes:
 ```json
 {"mcpServers": {"insurai": {"command": "uv",
   "args": ["run", "--directory", "/ABSOLUTE/PATH/insurance-assistant", "python", "-m", "insurai.mcp_server", "--transport", "stdio"],

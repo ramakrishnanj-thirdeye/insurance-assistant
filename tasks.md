@@ -27,14 +27,19 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - **Gate:** AC-03-*, AC-04-*; clause slice recall@5 ≥ 0.95; ablation report exists
 
 ## M3 Tools + MCP — spec 05
-- [ ] Tool schemas, personas enforcement, all tools
-- [ ] sql_facts generator (40)
-- [ ] FastMCP server, `make mcp-smoke`, Claude Desktop manual check
-- **Gate:** AC-05-*; sql_facts 100%
+- [x] Tool schemas, personas enforcement, 8 of 11 tools (spec 05)
+- [x] sql_facts generator: 20 items, seed 42, gold recomputed per run (3-day scope; spec 11 says 40)
+- [x] FastMCP server (stdio + streamable HTTP), `make mcp-smoke`
+- [ ] Issue: analyze_claim and portfolio_audit tools deferred to M5 (spec 07, gold.rule_results); run_analytics to M6 (spec 02). Register them in `tools/registry.py`, then re-run AC-05-01 and `make mcp-smoke` (AC-05-08)
+- [ ] Issue: grow sql_facts to 40 items (spec 11)
+- [x] policy_details intent added to spec 06 and planner.md v0.2.0 (decided 2026-10-04); SQL013–SQL016 route to it
+- Decision 2026-10-04: tools keep per-call read-only DuckDB connections (~15–80 ms) so `make data` can replace the warehouse on Windows without stopping services; revisit only if M7 latency needs it
+- **Gate:** AC-05-* (AC-05-09 moved to M8); sql_facts 100%
 
 ## M4 Agent graph — spec 06 (+ minimal /chat and Chat page)
 - [ ] State, nodes, fast path, planner prompt with few-shots, Send fan-out, synthesize, verify stub (V1–V4)
 - [ ] Checkpointer, follow-ups, clarifications
+- [ ] `agent.tool_transport: mcp` binding through langchain-mcp-adapters (setting exists since spec 05)
 - [ ] multi_turn.jsonl (10)
 - [ ] Thread store, ownership, status machine, per-turn state reset, history window (specs 06 and 09, ADR-009)
 - **Gate:** AC-06-*, AC-06-11, AC-06-12, AC-09-07 … AC-09-09, AC-09-12; routing ≥ 95%; correctness ≥ 90% on sql_facts + policy_clauses
@@ -62,6 +67,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Full API with SSE and resume; audit and eval endpoints
 - [ ] Five Streamlit pages; Trace panel; review card
 - [ ] `make demo-check`; rehearse the run-of-show
+- [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3)
 - [ ] Demo machine: Best performance power mode, plugged in, powercfg throttling exemption for Python.
 - [ ] Thread list, rename and delete endpoints; Conversations sidebar (specs 09, 10)
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice

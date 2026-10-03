@@ -59,6 +59,7 @@ sql:
 agent:
   verifier_retries: 1
   max_parallel_workers: 4
+  tool_transport: inprocess      # inprocess | mcp (langchain-mcp-adapters to `make mcp`; spec 05)
 
 api:
   host: 127.0.0.1
@@ -71,6 +72,11 @@ mcp:
 tracing:
   phoenix_enabled: true
   phoenix_project: insurance-assistant
+
+eval:
+  targets:                                # `make eval-fast --gate` minimums (spec 11); baseline comparison in M7
+    sql_facts.accuracy: 1.0
+    policy_clauses.recall_at_5: 0.95
 
 logging:
   level: INFO                             # stdlib level for the `insurai` logger (insurai.observability)

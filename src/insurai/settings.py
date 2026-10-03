@@ -85,6 +85,7 @@ class SQLSettings(_Section):
 class AgentSettings(_Section):
     verifier_retries: int
     max_parallel_workers: int
+    tool_transport: Literal["inprocess", "mcp"] = "inprocess"
 
 
 class APISettings(_Section):
@@ -100,6 +101,10 @@ class MCPSettings(_Section):
 class TracingSettings(_Section):
     phoenix_enabled: bool
     phoenix_project: str
+
+
+class EvalSettings(_Section):
+    targets: dict[str, float] = Field(default_factory=dict)  # "slice.metric" -> minimum
 
 
 class LoggingSettings(_Section):
@@ -125,6 +130,7 @@ class Settings(BaseSettings):
     api: APISettings
     mcp: MCPSettings
     tracing: TracingSettings
+    eval: EvalSettings = Field(default_factory=EvalSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     # Secrets and hosts come from .env / the environment under their conventional names (no prefix).

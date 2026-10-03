@@ -64,15 +64,15 @@ class AccessDenied(BaseModel): kind: Literal["access_denied"] = "access_denied";
   ```
 
 ## Acceptance criteria
-- [ ] AC-05-01 Each tool has unit tests for found, not found, bad ID format and access denied.
-- [ ] AC-05-02 sql_facts slice (40 items) answered 100% correctly by tools alone (exact match).
-- [ ] AC-05-03 Every successful result has ≥ 1 SourceRef whose label matches the formats in config/guardrails.yaml.
-- [ ] AC-05-04 Customer persona: another customer's claim → AccessDenied; `fraud_risk_score` absent from every customer result (property test over 100 random owned claims).
-- [ ] AC-05-05 Interactions: for a customer whose ID appears only as `logged_customer_id` on another customer's claim, get_claim_interactions returns AccessDenied.
-- [ ] AC-05-06 check_hospital alternatives are Network, same city, same specialty, and exclude the hospital itself.
-- [ ] AC-05-07 `get_customer_summary(name="Arjun Sharma")` returns a Disambiguation, never a single customer.
-- [ ] AC-05-08 `make mcp-smoke`: an MCP client lists all tools with schemas and `get_claim("CLM300210")` over MCP equals the in-process result.
-- [ ] AC-05-09 Manual: Claude Desktop with the README config answers "What is the status of CLM300210?" through the server.
+- [~] AC-05-01 Each tool has unit tests for found, not found, bad ID format and access denied. (8 of 11 tools; analyze_claim and portfolio_audit deferred to M5, run_analytics to M6)
+- [x] AC-05-02 sql_facts slice (40 items; 20 under the 3-day scope) answered 100% correctly by tools alone (exact match).
+- [x] AC-05-03 Every successful result has ≥ 1 SourceRef whose label matches the formats in config/guardrails.yaml.
+- [x] AC-05-04 Customer persona: another customer's claim → AccessDenied; `fraud_risk_score` absent from every customer result (property test over 100 random owned claims).
+- [x] AC-05-05 Interactions: for a customer whose ID appears only as `logged_customer_id` on another customer's claim, get_claim_interactions returns AccessDenied.
+- [x] AC-05-06 check_hospital alternatives are Network, same city, same specialty, and exclude the hospital itself.
+- [x] AC-05-07 `get_customer_summary(name="Arjun Sharma")` returns a Disambiguation, never a single customer.
+- [~] AC-05-08 `make mcp-smoke`: an MCP client lists all tools with schemas and `get_claim("CLM300210")` over MCP equals the in-process result. (passes for the 8 tools built; re-run when the deferred 3 register)
+- [ ] AC-05-09 Manual: Claude Desktop with the README config answers "What is the status of CLM300210?" through the server. (moved to M8 demo prep)
 
 ## Eval hooks
 sql_facts slice; tool errors counted in every slice.

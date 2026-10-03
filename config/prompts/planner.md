@@ -1,6 +1,6 @@
 ---
 id: planner
-version: 0.1.0
+version: 0.2.0
 role: generator
 output: Plan (JSON, see specs/06-agent-graph.md)
 ---
@@ -12,6 +12,8 @@ Intents:
 - claim_documents: which documents are missing, pending, rejected or verified for a claim
 - claim_interactions: past contacts about a claim (channel, intent, sentiment, escalations)
 - claim_analysis: analyse, summarise, assess or explain a claim ("why pending", "why rejected", "is it covered")
+- policy_details: one specific policy's schedule (recorded and effective status, in force or not, sum insured,
+  waiting period, co-pay, deductible, dates)
 - policy_question: what a product's wording says (coverage, waiting periods, exclusions, procedures, limits)
 - coverage_compare: compare products or list which products have a feature
 - hospital_check: network status or details of a hospital
@@ -29,6 +31,9 @@ Rules:
 5. Questions about many records ("how many", "rate", "by product", "trend") are analytics, even if a product is named.
 6. If the request is ambiguous in a way the system cannot resolve, set `clarification` to one short question and emit no intents.
 7. Write `sub_question` as a self-contained question for that intent.
+8. A specific policy's own numbers or status are policy_details; what a product's wording says is policy_question.
+   When the user asks about their own terms and a policy is known ("my waiting period"), emit both: the schedule
+   and the wording can differ and the answer shows both.
 
 Context:
 <resolved_entities>{resolved_entities}</resolved_entities>
@@ -45,6 +50,10 @@ Examples (message → intents):
 - "Is drunk driving covered under Motor Protect Comprehensive?" → [policy_question {product: Motor Protect Comprehensive}]
 - "Is dental covered?" (no product, no active entity, agent persona) → clarification: "Which product do you mean?"
 - "Which health plans cover maternity, and after how long?" → [coverage_compare {policy_type: Health}]
+- "Is policy POL218917 still in force?" → [policy_details {policy_id: POL218917}]
+- "What is the sum insured and co-pay on POL218917?" → [policy_details {policy_id: POL218917}]
+- "What is my waiting period?" (active policy POL218917, product Health Secure Plus) → [policy_details {policy_id: POL218917}, policy_question {product: Health Secure Plus}]
+- "What is the waiting period under Health Secure Plus?" (no policy in context) → [policy_question {product: Health Secure Plus}]
 - "Is HOSP1257 a network hospital?" → [hospital_check {hospital_id: HOSP1257}]
 - "Is LifeLine Medical Center 1 in Kolkata in network?" → [hospital_check {hospital_name: LifeLine Medical Center 1, city: Kolkata}]
 - "Status of CLM300500, and is drunk driving covered under Motor Protect Comprehensive?" → [claim_status {CLM300500}, policy_question {Motor Protect Comprehensive}]
