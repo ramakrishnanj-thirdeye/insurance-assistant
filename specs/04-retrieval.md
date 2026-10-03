@@ -53,7 +53,7 @@ def similar_sql_examples(question: str, k: int = 3) -> list[VerifiedQuery]: ...
 
 ## Pipeline (each stage maps to a RetrievalConfig switch)
 1. **Glossary expansion** (use_glossary): append synonyms from config/glossary.yaml whose phrase occurs in the query (case-insensitive, word boundary). Collect `section_hints` from `section_hints` keywords.
-2. **LLM rewrite** (use_rewrite, role small, prompt `query_rewrite.md`): returns `{rewritten_query, extra_section_hints, product_mentions}`. Product mentions are only used if the caller passed no product. Cache by (query, product) for the process lifetime.
+2. **LLM rewrite** — `[~] deferred: 3-day scope` (`use_rewrite` defaults to False; True raises NotImplementedError; `rewritten_query` = the glossary-expanded query). (use_rewrite, role small, prompt `query_rewrite.md`): returns `{rewritten_query, extra_section_hints, product_mentions}`. Product mentions are only used if the caller passed no product. Cache by (query, product) for the process lifetime.
 3. **Filter** (use_filter): product given → `product ∈ {product, "ALL"}`; else policy_type given → `policy_type == type OR is_common`; else no filter (result flags `unfiltered=True`; spec 06 decides whether to ask for a product).
 4. **Hybrid search**: prefetch dense top `prefetch_k` and bm25 top `prefetch_k`, fuse by RRF, keep `prefetch_k`. With one of use_dense/use_sparse off, use the other alone.
 5. **Rerank** (use_rerank): cross-encoder over (rewritten_query, embed_text); add `section_boost` when the chunk's section is in the hints; sort; keep `final_k`.
@@ -62,18 +62,23 @@ def similar_sql_examples(question: str, k: int = 3) -> list[VerifiedQuery]: ...
 8. **Sources**: one SourceRef per chunk, label = chunk.citation_label.
 
 ## Acceptance criteria
-- [ ] AC-04-01 Spike outcome recorded in ADR-002 (supported features, chosen fallbacks if any).
-- [ ] AC-04-02 `make index` builds both collections from scratch in < 2 min on CPU and is idempotent; policy_chunks has 62 points, sql_examples has 14.
-- [ ] AC-04-03 Every point has dense and sparse vectors and the full payload.
-- [ ] AC-04-04 EVAL001 (product Health Secure Plus): `[Health Secure Plus §5 Maternity]` in the top 3.
-- [ ] AC-04-05 EVAL004 (product Motor Protect Comprehensive): top 1 is `[Motor Protect Comprehensive §9 Exclusions]` and no Two Wheeler Secure chunk appears.
-- [ ] AC-04-06 With a product filter, 100% of returned chunks are that product or ALL.
-- [ ] AC-04-07 Glossary unit tests: "drunk driving" adds "intoxication"; "PED" adds "pre-existing disease"; "pregnancy" yields hints [5, 4].
-- [ ] AC-04-08 Clause slice, full config: recall@5 ≥ 0.95, product precision@5 ≥ 0.90, MRR ≥ 0.85.
-- [ ] AC-04-09 Ablation report for configs A dense-only, B bm25-only, C hybrid, D +filter, E +rerank, F +rewrite written to `eval/reports/ablation_<ts>.json`.
-- [ ] AC-04-10 p95 search latency < 400 ms on CPU excluding the LLM rewrite (timings_ms in result).
-- [ ] AC-04-12 With the API holding the index open, the MCP server and the eval runner still search successfully (copy fallback), and `make index` fails with the stop-the-services message.
-- [ ] AC-04-11 After tuning, the 10 unanswerable probes return confident = False in ≥ 8 cases while the clause slice stays ≥ 0.95 recall@5.
+- [x] AC-04-01 Spike outcome recorded in ADR-002 (supported features, chosen fallbacks if any).
+- [x] AC-04-02 `make index` builds both collections from scratch in < 2 min on CPU and is idempotent; policy_chunks has 62 points, sql_examples has 14.
+- [x] AC-04-03 Every point has dense and sparse vectors and the full payload.
+- [x] AC-04-04 EVAL001 (product Health Secure Plus): `[Health Secure Plus §5 Maternity]` in the top 3.
+- [x] AC-04-05 EVAL004 (product Motor Protect Comprehensive): top 1 is `[Motor Protect Comprehensive §9 Exclusions]` and no Two Wheeler Secure chunk appears.
+- [x] AC-04-06 With a product filter, 100% of returned chunks are that product or ALL.
+- [x] AC-04-07 Glossary unit tests: "drunk driving" adds "intoxication"; "PED" adds "pre-existing disease"; "pregnancy" yields hints [5, 4].
+- [x] AC-04-08 Clause slice, full config: recall@5 ≥ 0.95, product precision@5 ≥ 0.90, MRR ≥ 0.85. (3-day scope: 30 items, config E without rewrite; measured 1.00 / 1.00 / 0.95.)
+- [x] AC-04-09 Ablation report for configs A dense-only, B bm25-only, C hybrid, D +filter, E +rerank, F +rewrite written to `eval/reports/ablation_<ts>.json`. (A–E; F `[~] deferred: 3-day scope` with the rewrite stage.)
+- [x] AC-04-10 p95 search latency < 400 ms on CPU excluding the LLM rewrite (timings_ms in result). (Config E p95 136–214 ms over 3 runs with Python exempted from Windows power throttling; without the exemption, EcoQoS pushes it to 1.3–1.6 s. See ADR-002.)
+- [x] AC-04-12 With the API holding the index open, the MCP server and the eval runner still search successfully (copy fallback), and `make index` fails with the stop-the-services message.
+- [x] AC-04-11 After tuning, the 10 unanswerable probes return confident = False in ≥ 8 cases while the clause slice stays ≥ 0.95 recall@5. (3-day scope: 5 probes, ≥ 4 of 5; measured 5 of 5, recall@5 1.00, threshold −4.66.)
+
+## Implementation notes (M2)
+- Additive interface: `RetrievalResult.unfiltered`; `get_qdrant(read_only=True, path=None)`; `build_*_index(..., client=None)`.
+- Models are cached in `paths.models_dir` (data/models) and only `make index` downloads them; `retrieval.onnx_threads` caps ONNX threads per model.
+- Reranker: `Xenova/ms-marco-MiniLM-L-6-v2` (spike in ADR-002). Golden set: seed_rag.jsonl + policy_clauses.jsonl.
 
 ## Eval hooks
 Clause slice (50), comparisons (10), ablation suite.

@@ -15,7 +15,7 @@ def test_M0_settings_load_from_yaml_with_fixed_as_of_date() -> None:
     assert settings.llm.profile == "api-lite"
     assert set(settings.llm.profiles) == {"local", "api-lite", "api-quality"}
     assert settings.retrieval.neighbour_sections == {5: [4], 4: [5]}
-    assert settings.retrieval.rerank_threshold is None
+    assert isinstance(settings.retrieval.rerank_threshold, float)  # tuned in M2 (spec 04, ADR-002)
 
 
 def test_M0_paths_are_absolute_and_anchored_at_repo_root() -> None:

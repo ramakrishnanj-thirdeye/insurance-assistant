@@ -10,6 +10,7 @@ data/raw/*
 data/*.duckdb
 data/*.duckdb.wal
 data/qdrant/
+data/models/
 data/*.sqlite
 data/*.json
 data/coverage_draft.yaml

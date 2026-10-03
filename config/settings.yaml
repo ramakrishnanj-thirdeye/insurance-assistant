@@ -10,6 +10,7 @@ paths:
   policy_docs_dir: data/raw/policy_documents
   warehouse: data/warehouse.duckdb
   qdrant_path: data/qdrant              # Qdrant embedded (local) mode
+  models_dir: data/models               # fastembed model cache; filled by `make index`
   checkpoints: data/checkpoints.sqlite  # LangGraph SqliteSaver
   dq_report: data/data_quality_report.json
   eval_reports: eval/reports
@@ -35,12 +36,14 @@ llm:
 retrieval:
   dense_model: BAAI/bge-small-en-v1.5     # fastembed TextEmbedding, 384-d
   sparse_model: Qdrant/bm25               # fastembed SparseTextEmbedding
-  reranker_model: BAAI/bge-reranker-base  # fastembed TextCrossEncoder; fallback Xenova/ms-marco-MiniLM-L-6-v2
+  reranker_model: Xenova/ms-marco-MiniLM-L-6-v2  # fastembed TextCrossEncoder; beat bge-reranker-base on p95 (ADR-002)
+  onnx_threads: 8                         # per model; null = onnxruntime default (all cores), which makes the
+                                          # three sessions contend and was ~10x slower in the M2 spike
   collection_policies: policy_chunks
   collection_sql_examples: sql_examples
   prefetch_k: 20
   final_k: 5
-  rerank_threshold: null                  # tuned in M2 on the clause slice; null = gate disabled
+  rerank_threshold: -4.66                 # M2 sweep (max F1): probes <= -9.9, answerable >= 0.59; null = gate off
   section_boost: 0.1                      # added to rerank score when a chunk's section matches a hint
   neighbour_sections: {5: [4], 4: [5]}    # pull §4 with §5 and vice versa (waiting periods + maternity)
 

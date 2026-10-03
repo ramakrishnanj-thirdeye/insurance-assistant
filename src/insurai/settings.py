@@ -33,6 +33,7 @@ class PathsSettings(_Section):
     policy_docs_dir: Path
     warehouse: Path
     qdrant_path: Path
+    models_dir: Path
     checkpoints: Path
     dq_report: Path
     eval_reports: Path
@@ -60,6 +61,7 @@ class RetrievalSettings(_Section):
     dense_model: str
     sparse_model: str
     reranker_model: str
+    onnx_threads: int | None = None
     collection_policies: str
     collection_sql_examples: str
     prefetch_k: int

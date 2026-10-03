@@ -15,12 +15,15 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - **Gate:** AC-01-01 … AC-01-11
 
 ## M2 Policy knowledge + retrieval — specs 03, 04
-- [ ] Qdrant / fastembed spike → ADR-002
+- [x] Qdrant / fastembed spike → ADR-002 (reranker: MiniLM-L-6-v2; threshold −4.66)
 - [x] Parser, chunks, coverage loader, `get_coverage` (spec 03)
 - [x] Human review of config/coverage_matrix.yaml against the wordings, then `status: reviewed` (AC-03-06)
 - [ ] Issue: AC-03-08 deferred (3-day scope). `extract_coverage_draft` and the CLI behind `make coverage-draft` are not built, so the target fails until then
-- [ ] Index build; search pipeline with ablation switches
-- [ ] Write policy_clauses.jsonl (50) + 10 unanswerable probes; tune rerank threshold
+- [x] Index build; search pipeline with ablation switches (spec 04; LLM rewrite and config F `[~] deferred: 3-day scope`)
+- [x] Write policy_clauses.jsonl + probes; tune rerank threshold (3-day scope: 30 items incl. seed_rag EVAL001–005, 5 probes)
+- [ ] Issue: spec 04 stage 2 (LLM rewrite, `query_rewrite.md`) and ablation config F deferred (3-day scope)
+- [x] AC-04-10 resolved: p95 136–214 ms once Python is exempted from Windows power throttling (ADR-002); demo-machine setup is in M8
+- [ ] Issue: grow policy_clauses to ~50 items + 10 probes for AC-11-02 (M7)
 - **Gate:** AC-03-*, AC-04-*; clause slice recall@5 ≥ 0.95; ablation report exists
 
 ## M3 Tools + MCP — spec 05
@@ -58,6 +61,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Full API with SSE and resume; audit and eval endpoints
 - [ ] Five Streamlit pages; Trace panel; review card
 - [ ] `make demo-check`; rehearse the run-of-show
+- [ ] Demo machine: Best performance power mode, plugged in, powercfg throttling exemption for Python.
 - [ ] Thread list, rename and delete endpoints; Conversations sidebar (specs 09, 10)
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 
@@ -70,4 +74,4 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] #6 Critical Care Elite: Cardiac Procedure only (config/coverage_matrix.yaml, assumption A3). Assumptions A1 to A3 accepted for the PoC on 2026-10-04; confirm with the business before production
 - [ ] #7 Deductible before co-pay (spec 01)
 - [ ] #8 All three personas in scope
-- [ ] #9 Qdrant embedded, confirmed by the M2 spike (ADR-002)
+- [x] #9 Qdrant embedded, confirmed by the M2 spike (ADR-002)
