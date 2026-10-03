@@ -3,9 +3,9 @@
 Tick boxes as work lands. Each milestone ends with its gate; do not start the next milestone with a red gate.
 
 ## M0 Scaffold
-- [ ] pyproject, uv lock, Makefile targets as stubs, `src/insurai` package with `settings.py` (pydantic-settings over config/settings.yaml), `llm/` factory, `observability/` logger
-- [ ] tests/ skeleton with markers; CI-like `make lint test` passing on the empty suite
-- [ ] Copy the dataset into `data/raw/` (see data/raw/README.md)
+- [x] pyproject, uv lock, Makefile targets as stubs, `src/insurai` package with `settings.py` (pydantic-settings over config/settings.yaml), `llm/` factory, `observability/` logger
+- [x] tests/ skeleton with markers; CI-like `make lint test` passing on the empty suite
+- [x] Copy the dataset into `data/raw/` (see data/raw/README.md)
 - **Gate:** `make lint test` green
 
 ## M1 Warehouse — spec 01

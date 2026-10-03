@@ -68,3 +68,6 @@ mcp:
 tracing:
   phoenix_enabled: true
   phoenix_project: insurance-assistant
+
+logging:
+  level: INFO                             # stdlib level for the `insurai` logger (insurai.observability)

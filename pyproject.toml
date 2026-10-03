@@ -47,12 +47,15 @@ packages = ["src/insurai"]
 [tool.ruff]
 line-length = 110
 target-version = "py312"
+# Specs are the contract: never reformat them or the reference prototype.
+extend-exclude = ["specs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
 markers = [
   "unit: fast, no external state",
   "integration: needs data/warehouse.duckdb and/or data/qdrant",
