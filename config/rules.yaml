@@ -1,0 +1,138 @@
+# Claim rules (spec 07). Each rule is a set of SQL boolean expressions over gold.claim_facts,
+# so ONE definition drives both analyze_claim (WHERE claim_id = ?) and the portfolio audit.
+# Status per rule:  not_applicable if NOT applies_if
+#                   pass           if pass_if
+#                   review         if review_if            (only evaluated when pass_if is false)
+#                   fail           otherwise
+# NULLs count as false. Severity applies to fail (and to review as "Needs review").
+# Severities: blocker | warning | info | escalate.  Thresholds are injected from settings.yaml.
+version: 1
+
+citations:                      # common-terms sections cited by rules (identical in all wordings)
+  reimbursement: {product: ALL, section_no: 8, section_name: "Reimbursement Process"}
+  human_review:  {product: ALL, section_no: 13, section_name: "Human Review"}
+
+rules:
+  - id: R01
+    name: Policy in force on claim date
+    severity: blocker
+    pass_if: "in_policy_period"
+    evidence: [claim_date, policy_start_date, policy_end_date]
+    message: "Claim date {claim_date} falls outside the policy period {policy_start_date} to {policy_end_date}."
+    cite: schedule
+
+  - id: R02
+    name: Policy not cancelled
+    severity: blocker
+    pass_if: "policy_status <> 'Cancelled'"
+    evidence: [policy_status]
+    message: "The policy is marked Cancelled."
+    cite: schedule
+
+  - id: R03
+    name: Schedule waiting period completed
+    severity: blocker
+    applies_if: "waiting_period_days > 0 AND days_since_policy_start >= 0"
+    pass_if: "days_since_policy_start >= waiting_period_days"
+    evidence: [days_since_policy_start, waiting_period_days]
+    message: "Claim made {days_since_policy_start} days after policy start; the schedule's waiting period is {waiting_period_days} days."
+    cite: schedule
+
+  - id: R04
+    name: Product waiting period for this condition
+    severity: blocker
+    severity_if: [{when: "waiting_basis = 'assumption'", severity: warning}]
+    applies_if: "required_waiting_days > 0 AND days_since_cover_start >= 0"
+    pass_if: "days_since_cover_start >= required_waiting_days"
+    evidence: [days_since_cover_start, required_waiting_days, waiting_reason, continuous_cover_start]
+    message: "{diagnosis_or_loss_type} needs {required_waiting_days} days of continuous cover ({waiting_reason}); cover began {continuous_cover_start}, {days_since_cover_start} days before the claim."
+    cite: coverage
+
+  - id: R05
+    name: Loss type covered by product
+    severity: blocker
+    pass_if: "coverage_status = 'covered'"
+    review_if: "coverage_status IN ('needs_review', 'conditional') OR coverage_status IS NULL"
+    evidence: [diagnosis_or_loss_type, product_name, coverage_status, coverage_reason]
+    message: "{diagnosis_or_loss_type} is {coverage_status} under {product_name}."
+    cite: coverage
+
+  - id: R06
+    name: Required documents present
+    severity: blocker
+    pass_if: "docs_required_missing = 0"
+    evidence: [docs_required, docs_required_missing, missing_doc_types]
+    message: "{docs_required_missing} of {docs_required} required documents are missing: {missing_doc_types}."
+    cite: reimbursement
+
+  - id: R07
+    name: Required documents verified
+    severity: blocker
+    pass_if: "docs_required_pending = 0 AND docs_required_rejected = 0"
+    review_if: "docs_required_rejected = 0"
+    evidence: [pending_doc_types, rejected_doc_types]
+    message: "Pending verification: {pending_doc_types}. Rejected: {rejected_doc_types}."
+    cite: reimbursement
+
+  - id: R08
+    name: Network hospital
+    severity: info
+    applies_if: "policy_type = 'Health' AND hospital_id IS NOT NULL"
+    pass_if: "network_status = 'Network'"
+    evidence: [hospital_name, network_status, hospital_specialty]
+    message: "{hospital_name} is outside the network, so the claim follows the reimbursement path, not cashless."
+    cite: none
+
+  - id: R09
+    name: Approved amount within payable
+    severity: warning
+    applies_if: "claim_status IN ('Approved', 'Partially Approved')"
+    pass_if: "approved_amount <= expected_payable AND approved_amount <= sum_insured"
+    evidence: [claim_amount, approved_amount, expected_payable, sum_insured, deductible, co_pay_pct]
+    message: "Approved {approved_amount} exceeds the expected payable {expected_payable} after a {deductible} deductible and {co_pay_pct}% co-pay."
+    cite: schedule
+
+  - id: R10
+    name: Fraud score below review threshold
+    severity: escalate
+    pass_if: "fraud_risk_score < {fraud_review_score}"
+    evidence: [fraud_risk_score]
+    message: "Fraud risk score {fraud_risk_score} is at or above the review threshold."
+    cite: human_review
+    hidden_from: [customer]
+
+  - id: R11
+    name: Not a high-value claim
+    severity: escalate
+    pass_if: "NOT high_value"
+    evidence: [claim_amount]
+    message: "Claim amount {claim_amount} is above the high-value threshold."
+    cite: human_review
+
+  - id: R12
+    name: No review flags
+    severity: escalate
+    pass_if: "manual_review_flag = 0 AND kyc_status = 'Verified'"
+    evidence: [manual_review_flag, kyc_status]
+    message: "Manual review flag is {manual_review_flag}; KYC status is {kyc_status}."
+    cite: human_review
+    hidden_from: [customer]
+
+escalation:
+  # LangGraph interrupts for human review (agent and supervisor personas) when this is true.
+  needs_human_review_if: "any fail with severity in [blocker, escalate] OR any review"
+
+decision_consistency:
+  # Compares the recorded decision with rule outcomes; drives the leakage radar.
+  - id: C1
+    name: Paid despite blockers
+    when: "claim_status IN ('Approved', 'Partially Approved') AND <any blocker fail>"
+  - id: C2
+    name: Pending documents but none missing or unverified
+    when: "claim_status = 'Pending Documents' AND docs_required_missing = 0 AND docs_required_pending = 0"
+  - id: C3
+    name: Rejected for documents but documents complete
+    when: "rejection_or_adjustment_reason = 'Insufficient documents' AND docs_required_missing = 0"
+  - id: C4
+    name: Rejected for waiting period but waiting period completed
+    when: "rejection_or_adjustment_reason = 'Waiting period not completed' AND NOT within_schedule_waiting AND days_since_policy_start >= 0"

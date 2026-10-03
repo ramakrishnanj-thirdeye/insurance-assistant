@@ -1,0 +1,215 @@
+# Coverage matrix extracted from the 10 policy wordings in data/raw/policy_documents.
+# Status: DRAFT, pre-filled from the wordings. A person must review every row against the source text,
+# then set status: reviewed (acceptance criterion AC-03-06). Every value carries its section number.
+#
+# Only sections 2, 4, 5, 9 and 10 differ between products; sections 1, 3, 6-8 and 11-15 are identical
+# boilerplate and live once under common_terms.
+version: 1
+status: draft
+months_to_days: 30.4167          # 24 months = 730 days, 36 = 1095, 48 = 1460 (rounded)
+
+products:
+  Health Secure Plus:
+    policy_type: Health
+    file: Health_Secure_Plus.txt
+    sum_insured_options_inr: [500000, 1000000, 2000000]                    # §2
+    waiting:                                                               # §4
+      initial_days: 30
+      specified_disease_months: 24
+      pre_existing_months: 36
+      text: "30-day initial waiting period; 24 months for specified diseases; 36 months for declared pre-existing diseases."
+    maternity:                                                             # §5
+      status: covered
+      waiting_months: 24
+      text: "Covered after a 24-month waiting period, subject to plan variant and sub-limits."
+    exclusions:                                                            # §9
+      - Cosmetic procedures
+      - Non-medically necessary treatment
+      - Self-inflicted injury
+      - Experimental treatment unless specifically approved
+    claim_procedure: "Cashless claims require pre-authorization at network hospitals. Reimbursement claims should normally be submitted within 30 days of discharge."   # §10
+
+  Family Care Gold:
+    policy_type: Health
+    file: Family_Care_Gold.txt
+    sum_insured_options_inr: [300000, 500000, 1000000]
+    waiting:
+      initial_days: 30
+      specified_disease_months: 24
+      pre_existing_months: 48
+      text: "30-day initial waiting period; 24 months for specified conditions; 48 months for pre-existing disease unless reduced by endorsement."
+    maternity:
+      status: conditional                  # only with the maternity add-on; the data has no add-on flag
+      waiting_months: 24
+      text: "Available only where maternity add-on is active; 24-month waiting period applies."
+    exclusions:
+      - Dental treatment unless caused by accident
+      - Infertility treatment
+      - Cosmetic surgery
+      - Intentional self-harm
+    claim_procedure: "Notify planned hospitalization 48 hours in advance where feasible; emergency hospitalization should be notified within 24 hours."
+
+  Critical Care Elite:
+    policy_type: Health
+    file: Critical_Care_Elite.txt
+    sum_insured_options_inr: [1000000, 2500000]
+    waiting:
+      initial_days: null
+      specified_disease_months: null
+      pre_existing_months: null
+      condition_days: {listed_critical_illness: 90}
+      accident_exempt: true
+      text: "90 days for listed critical illnesses unless arising from accident."
+    maternity:
+      status: not_covered
+      waiting_months: null
+      text: "Not covered under the base critical illness plan."
+    exclusions:
+      - Pre-existing critical illness during waiting period
+      - Substance abuse related conditions
+      - Non-covered experimental care
+    claim_procedure: "Diagnosis must be supported by specialist reports and required survival period conditions."
+
+  Maternity Protect:
+    policy_type: Health
+    file: Maternity_Protect.txt
+    sum_insured_options_inr: [200000, 500000]
+    waiting:
+      initial_days: null
+      specified_disease_months: null
+      pre_existing_months: null
+      condition_months: {maternity: 24}
+      text: "24-month waiting period for maternity benefits."
+    maternity:
+      status: covered
+      waiting_months: 24
+      text: "Covers eligible delivery expenses, medically necessary C-section, and defined newborn benefits subject to sub-limits."
+    exclusions:
+      - Elective fertility treatment unless specifically endorsed
+      - Non-medical expenses
+      - Treatments outside covered territory
+    claim_procedure: "Pre-authorization required for planned delivery at network providers."
+
+  Senior Health Shield:
+    policy_type: Health
+    file: Senior_Health_Shield.txt
+    sum_insured_options_inr: [200000, 500000, 1000000]
+    waiting:
+      initial_days: 30
+      specified_disease_months: 24          # wording says "listed diseases"
+      pre_existing_months: 36
+      text: "30-day initial waiting period; 24 months for listed diseases; 36 months for pre-existing diseases."
+    maternity:
+      status: not_applicable
+      waiting_months: null
+      text: "Not applicable."
+    exclusions:
+      - Non-prescribed treatment
+      - Cosmetic care
+      - Non-medical consumables subject to policy schedule
+    claim_procedure: "20% co-pay may apply depending on schedule; network hospital cashless facility subject to authorization."
+
+  Car Shield Plus:
+    policy_type: Motor
+    file: Car_Shield_Plus.txt
+    sum_insured_options_inr: null            # "Insured Declared Value as per schedule"
+    sum_insured_text: "Insured Declared Value as per schedule."
+    waiting: {initial_days: 0, text: "Coverage begins on effective date."}
+    maternity: {status: not_applicable, waiting_months: null, text: "Not applicable."}
+    exclusions:
+      - Depreciation unless zero-dep add-on active
+      - Illegal use
+      - Racing
+      - Breakdown unrelated to accident
+    claim_procedure: "Cashless repair available only at empanelled garages subject to authorization."
+
+  Motor Protect Comprehensive:
+    policy_type: Motor
+    file: Motor_Protect_Comprehensive.txt
+    sum_insured_options_inr: null
+    sum_insured_text: "Insured Declared Value as per schedule."
+    waiting: {initial_days: 0, text: "No health waiting period; coverage begins from policy effective date subject to inspection and policy terms."}
+    maternity: {status: not_applicable, waiting_months: null, text: "Not applicable."}
+    exclusions:
+      - Driving without valid license
+      - Intoxication                          # users say "drunk driving"; see config/glossary.yaml
+      - Consequential loss
+      - Mechanical breakdown not caused by insured peril
+    claim_procedure: "Notify insurer promptly, submit repair estimate, registration certificate, driving license, and FIR where applicable."
+
+  Two Wheeler Secure:
+    policy_type: Motor
+    file: Two_Wheeler_Secure.txt
+    sum_insured_options_inr: null
+    sum_insured_text: "Insured Declared Value as per schedule."
+    waiting: {initial_days: 0, text: "Coverage from effective date subject to policy activation."}
+    maternity: {status: not_applicable, waiting_months: null, text: "Not applicable."}
+    exclusions:
+      - Wear and tear
+      - Mechanical/electrical breakdown
+      - Drunk driving
+      - Illegal use
+    claim_procedure: "Vehicle inspection may be required before repair approval."
+
+  Global Travel Secure:
+    policy_type: Travel
+    file: Global_Travel_Secure.txt
+    sum_insured_options_inr: [500000, 1000000]   # "equivalent limits"
+    waiting: {initial_days: 0, text: "Trip-specific coverage begins as defined in schedule."}
+    maternity:
+      status: conditional
+      waiting_months: null
+      text: "Routine maternity expenses excluded; emergency complications subject to policy terms."
+    exclusions:
+      - Known pre-existing conditions unless specifically covered
+      - High-risk adventure activities unless endorsed
+      - Unlawful acts
+    claim_procedure: "Travel documents, bills, incident reports, and carrier certificates may be required."
+
+  Student Travel Protect:
+    policy_type: Travel
+    file: Student_Travel_Protect.txt
+    sum_insured_options_inr: [500000, 1000000]
+    waiting: {initial_days: 0, text: "Coverage tied to enrolled travel period."}
+    maternity:
+      status: conditional
+      waiting_months: null
+      text: "Limited emergency treatment only where specified."
+    exclusions:
+      - Elective treatment
+      - Undocumented baggage claims
+      - Events known before policy inception
+    claim_procedure: "Notify assistance provider as soon as practical and retain all original supporting documents."
+
+common_terms:                       # identical in all 10 wordings; indexed once with product = ALL
+  sections: [1, 3, 6, 7, 8, 11, 12, 13, 14, 15]
+  obligations:                      # these become guardrail requirements (spec 08)
+    privacy: "§12 Personal information must not be disclosed to unauthorized parties."
+    human_review: "§13 Complex, ambiguous, high-value, suspicious, or insufficiently documented claims should be escalated for manual review."
+    citations: "§14 Any automated assistant must cite source sections and avoid guaranteeing claim approval."
+    no_invention: "§15 An assistant should respond only from verified policy evidence."
+
+# Diagnosis/loss-type coverage per product, consumed by rule R05 and R04 via ref.diagnosis_coverage.
+# The loader expands this into a full product x diagnosis grid (spec 03, "Coverage grid expansion").
+diagnosis_coverage:
+  statuses: [covered, conditional, not_covered, not_applicable, needs_review]
+  diagnoses:
+    Health: [Accidental Injury, Fracture, Cardiac Procedure, Maternity, Viral Fever, Diabetes Complication,
+             Pneumonia, Hypertension, Dengue, Appendicitis, Cataract, Kidney Stone]
+    Motor:  [Accidental Damage, Flood Damage, Glass Damage, Third Party Damage, Theft]
+    Travel: [Medical Emergency, Lost Baggage, Passport Loss, Trip Cancellation, Flight Delay]
+  default_status: covered           # subject to waiting periods, exclusions and evidence
+  assumptions:
+    A1_accident_exempt: {diagnoses: [Accidental Injury, Fracture], note: "Treated as accident-related, exempt from initial and condition waiting periods. Not stated in the wordings."}
+    A2_specified_diseases: {diagnoses: [Cataract, Kidney Stone], note: "Wordings say 'specified/listed diseases' without listing them; these two are common Indian-market examples."}
+    A3_critical_illnesses: {diagnoses: [Cardiac Procedure], note: "Critical Care Elite lists no illnesses; open decision #6 proposes Cardiac Procedure only."}
+  overrides:
+    - {product: Critical Care Elite, diagnosis: "*", status: needs_review, section: 4, basis: document,
+       reason: "Base plan pays only listed critical illnesses, and the wording lists none"}
+    - {product: Critical Care Elite, diagnosis: Cardiac Procedure, status: covered, condition_waiting_days: 90, section: 4, basis: assumption}
+    - {product: Critical Care Elite, diagnosis: Maternity, status: not_covered, section: 5, basis: document}
+    - {product: Senior Health Shield, diagnosis: Maternity, status: not_applicable, section: 5, basis: document}
+    - {product: Health Secure Plus, diagnosis: Maternity, status: covered, condition_waiting_months: 24, section: 5, basis: document}
+    - {product: Maternity Protect, diagnosis: Maternity, status: covered, condition_waiting_months: 24, section: 4, basis: document}
+    - {product: Family Care Gold, diagnosis: Maternity, status: conditional, condition_waiting_months: 24, section: 5, basis: document,
+       reason: "Requires maternity add-on, which the data does not record"}

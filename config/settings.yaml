@@ -1,0 +1,70 @@
+# Central runtime settings. Loaded by src/insurai/settings.py (pydantic-settings).
+# Any key can be overridden by an env var: INSURAI__<SECTION>__<KEY>, e.g. INSURAI__LLM__PROFILE=local
+project: insurance-assistant
+
+# Fixed "today" for every derived field, rule and eval. Latest claim_date in the dataset.
+as_of_date: 2026-10-01
+
+paths:
+  raw_dir: data/raw
+  policy_docs_dir: data/raw/policy_documents
+  warehouse: data/warehouse.duckdb
+  qdrant_path: data/qdrant              # Qdrant embedded (local) mode
+  checkpoints: data/checkpoints.sqlite  # LangGraph SqliteSaver
+  dq_report: data/data_quality_report.json
+  eval_reports: eval/reports
+
+llm:
+  profile: api-lite                     # local | api-lite | api-quality
+  profiles:
+    local:
+      generator: {provider: ollama, model: "qwen3:8b", temperature: 0}
+      small:     {provider: ollama, model: "qwen3:8b", temperature: 0}
+      judge:     {provider: ollama, model: "qwen3:14b", temperature: 0}
+    api-lite:
+      generator: {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}
+      small:     {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}
+      judge:     {provider: anthropic, model: claude-sonnet-5-5, temperature: 0}
+    api-quality:
+      generator: {provider: anthropic, model: claude-sonnet-5-5, temperature: 0}
+      small:     {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}
+      judge:     {provider: anthropic, model: claude-opus-5-5, temperature: 0}
+  max_output_tokens: 1200
+  request_timeout_s: 60
+
+retrieval:
+  dense_model: BAAI/bge-small-en-v1.5     # fastembed TextEmbedding, 384-d
+  sparse_model: Qdrant/bm25               # fastembed SparseTextEmbedding
+  reranker_model: BAAI/bge-reranker-base  # fastembed TextCrossEncoder; fallback Xenova/ms-marco-MiniLM-L-6-v2
+  collection_policies: policy_chunks
+  collection_sql_examples: sql_examples
+  prefetch_k: 20
+  final_k: 5
+  rerank_threshold: null                  # tuned in M2 on the clause slice; null = gate disabled
+  section_boost: 0.1                      # added to rerank score when a chunk's section matches a hint
+  neighbour_sections: {5: [4], 4: [5]}    # pull §4 with §5 and vice versa (waiting periods + maternity)
+
+thresholds:
+  fraud_review_score: 0.5                 # ~1% of claims; the score carries no signal in this data
+  high_value_inr: 236053                  # p95 of claim_amount; recomputed and logged by `make data`
+
+sql:
+  row_limit: 200
+  timeout_s: 10
+  repair_attempts: 1
+
+agent:
+  verifier_retries: 1
+  max_parallel_workers: 4
+
+api:
+  host: 127.0.0.1
+  port: 8000
+
+mcp:
+  http_host: 127.0.0.1
+  http_port: 8765
+
+tracing:
+  phoenix_enabled: true
+  phoenix_project: insurance-assistant

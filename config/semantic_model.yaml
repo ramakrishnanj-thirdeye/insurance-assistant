@@ -1,0 +1,224 @@
+# Semantic layer for governed text-to-SQL (spec 02). Shape follows the Snowflake Cortex Analyst
+# semantic model (tables / dimensions / time_dimensions / facts / metrics / filters / relationships /
+# verified_queries) so the production path onto Snowflake is a lift-and-shift. DuckDB is the PoC engine.
+# Rules: only tables listed here may be queried; only the joins under `relationships` are allowed.
+name: insurance_claims
+description: >
+  Health, Motor and Travel insurance: customers, policies, claims, claim documents, hospitals and
+  customer interactions. All dates are evaluated at the fixed as-of date in settings.yaml (2026-10-01).
+
+tables:
+  - name: claims
+    description: One row per claim, with derived flags computed against the claim's policy.
+    base_table: {database: warehouse, schema: silver, table: claims}
+    primary_key: {columns: [claim_id]}
+    dimensions:
+      - {name: claim_id, expr: claim_id, data_type: varchar, unique: true}
+      - {name: customer_id, expr: customer_id, data_type: varchar}
+      - {name: policy_id, expr: policy_id, data_type: varchar}
+      - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true, sample_values: [Health, Motor, Travel],
+         synonyms: [line of business, LOB]}
+      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true, synonyms: [product, plan, policy name]}
+      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true,
+         sample_values: [Approved, Partially Approved, Rejected, Under Review, Pending Documents, Submitted],
+         synonyms: [status, claim state]}
+      - {name: diagnosis_or_loss_type, expr: diagnosis_or_loss_type, data_type: varchar, is_enum: true,
+         synonyms: [diagnosis, illness, loss type, cause of claim]}
+      - {name: hospital_id, expr: hospital_id, data_type: varchar, description: Only populated for Health claims}
+      - {name: rejection_or_adjustment_reason, expr: rejection_or_adjustment_reason, data_type: varchar, is_enum: true,
+         synonyms: [rejection reason, adjustment reason, why rejected]}
+      - {name: manual_review_flag, expr: manual_review_flag, data_type: number, sample_values: [0, 1]}
+      - {name: in_policy_period, expr: in_policy_period, data_type: boolean, description: Claim date within policy start and end}
+      - {name: within_schedule_waiting, expr: within_schedule_waiting, data_type: boolean}
+      - {name: high_value, expr: high_value, data_type: boolean, description: Claim amount above the p95 threshold}
+    time_dimensions:
+      - {name: claim_date, expr: claim_date, data_type: date, synonyms: [filed on, claim filed date]}
+    facts:
+      - {name: claim_amount, expr: claim_amount, data_type: number, synonyms: [claimed amount, amount claimed]}
+      - {name: approved_amount, expr: approved_amount, data_type: number, synonyms: [paid amount, settled amount]}
+      - {name: expected_payable, expr: expected_payable, data_type: number}
+      - {name: fraud_risk_score, expr: fraud_risk_score, data_type: number, synonyms: [fraud score, risk score]}
+      - {name: days_since_policy_start, expr: days_since_policy_start, data_type: number}
+    metrics:
+      - {name: claim_count, expr: COUNT(*)}
+      - {name: total_claim_amount, expr: SUM(claim_amount)}
+      - {name: total_approved_amount, expr: SUM(approved_amount)}
+      - {name: approval_rate_pct, expr: "ROUND(100.0 * COUNT(*) FILTER (WHERE claim_status IN ('Approved', 'Partially Approved')) / COUNT(*), 1)"}
+      - {name: rejection_rate_pct, expr: "ROUND(100.0 * COUNT(*) FILTER (WHERE claim_status = 'Rejected') / COUNT(*), 1)"}
+    filters:
+      - {name: open_claims, expr: "claim_status IN ('Submitted', 'Under Review', 'Pending Documents')",
+         synonyms: [pending claims, outstanding claims, in-progress claims]}
+      - {name: settled_claims, expr: "claim_status IN ('Approved', 'Partially Approved')", synonyms: [paid claims]}
+
+  - name: policies
+    description: One row per policy (always 365 days). Use effective_status, not policy_status, for "active".
+    base_table: {database: warehouse, schema: silver, table: policies}
+    primary_key: {columns: [policy_id]}
+    dimensions:
+      - {name: policy_id, expr: policy_id, data_type: varchar, unique: true}
+      - {name: customer_id, expr: customer_id, data_type: varchar}
+      - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true}
+      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true}
+      - {name: policy_status, expr: policy_status, data_type: varchar, is_enum: true, sample_values: [Active, Expired, Cancelled],
+         description: Recorded status; stale for 50,811 policies. Prefer effective_status.}
+      - {name: effective_status, expr: effective_status, data_type: varchar, is_enum: true,
+         sample_values: [In Force, Lapsed, Cancelled, Not Started], synonyms: [active, in force, current]}
+      - {name: co_pay_pct, expr: co_pay_pct, data_type: number, sample_values: [0, 10, 20]}
+      - {name: waiting_period_days, expr: waiting_period_days, data_type: number, sample_values: [0, 30, 90, 365, 730]}
+    time_dimensions:
+      - {name: policy_start_date, expr: policy_start_date, data_type: date}
+      - {name: policy_end_date, expr: policy_end_date, data_type: date}
+    facts:
+      - {name: sum_insured, expr: sum_insured, data_type: number, synonyms: [cover amount, SI]}
+      - {name: annual_premium, expr: annual_premium, data_type: number, synonyms: [premium]}
+      - {name: deductible, expr: deductible, data_type: number}
+    metrics:
+      - {name: policy_count, expr: COUNT(*)}
+      - {name: total_premium, expr: SUM(annual_premium)}
+    filters:
+      - {name: in_force_policies, expr: "effective_status = 'In Force'", synonyms: [active policies]}
+
+  - name: customers
+    description: One row per customer. customer_name is NOT unique (300 names across 50,000 customers).
+    base_table: {database: warehouse, schema: silver, table: customers}
+    primary_key: {columns: [customer_id]}
+    dimensions:
+      - {name: customer_id, expr: customer_id, data_type: varchar, unique: true}
+      - {name: customer_name, expr: customer_name, data_type: varchar, pii: true}
+      - {name: gender, expr: gender, data_type: varchar, is_enum: true, sample_values: [Female, Male, Other]}
+      - {name: city, expr: city, data_type: varchar, is_enum: true}
+      - {name: state, expr: state, data_type: varchar, is_enum: true}
+      - {name: kyc_status, expr: kyc_status, data_type: varchar, is_enum: true, sample_values: [Verified, Pending, Rejected]}
+      - {name: risk_segment, expr: risk_segment, data_type: varchar, is_enum: true, sample_values: [Low, Medium, High]}
+    time_dimensions:
+      - {name: customer_since, expr: customer_since, data_type: date}
+    facts:
+      - {name: age, expr: age, data_type: number}
+
+  - name: hospitals
+    description: Provider master with network status and specialty.
+    base_table: {database: warehouse, schema: silver, table: hospitals}
+    primary_key: {columns: [hospital_id]}
+    dimensions:
+      - {name: hospital_id, expr: hospital_id, data_type: varchar, unique: true}
+      - {name: hospital_name, expr: hospital_name, data_type: varchar}
+      - {name: city, expr: city, data_type: varchar, is_enum: true}
+      - {name: network_status, expr: network_status, data_type: varchar, is_enum: true, sample_values: [Network, Non-Network],
+         synonyms: [empanelled, tie-up]}
+      - {name: specialty, expr: specialty, data_type: varchar, is_enum: true}
+
+  - name: claim_documents
+    description: Required-vs-present document checklist per claim (gold), including required types with no record.
+    base_table: {database: warehouse, schema: gold, table: claim_doc_checklist}
+    dimensions:
+      - {name: claim_id, expr: claim_id, data_type: varchar}
+      - {name: document_type, expr: document_type, data_type: varchar, is_enum: true}
+      - {name: required, expr: required, data_type: boolean}
+      - {name: checklist_status, expr: checklist_status, data_type: varchar, is_enum: true,
+         sample_values: [Verified, Pending verification, Rejected, Missing, No record]}
+      - {name: file_type, expr: file_type, data_type: varchar, is_enum: true}
+
+  - name: interactions
+    description: Customer service interactions. Reach customers ONLY through claim_id (ADR-008).
+    base_table: {database: warehouse, schema: silver, table: customer_interactions}
+    primary_key: {columns: [interaction_id]}
+    dimensions:
+      - {name: interaction_id, expr: interaction_id, data_type: varchar, unique: true}
+      - {name: claim_id, expr: claim_id, data_type: varchar}
+      - {name: claim_owner_id, expr: claim_owner_id, data_type: varchar}
+      - {name: channel, expr: channel, data_type: varchar, is_enum: true}
+      - {name: intent, expr: intent, data_type: varchar, is_enum: true}
+      - {name: sentiment, expr: sentiment, data_type: varchar, is_enum: true}
+      - {name: resolution_status, expr: resolution_status, data_type: varchar, is_enum: true,
+         sample_values: [Resolved, Pending, Escalated]}
+    time_dimensions:
+      - {name: interaction_date, expr: interaction_date, data_type: date}
+    blocked_columns: [logged_customer_id]   # never selectable or joinable
+
+relationships:
+  - {name: claims_to_policies, left_table: claims, right_table: policies, join_type: inner, relationship_type: many_to_one,
+     relationship_columns: [{left_column: policy_id, right_column: policy_id}]}
+  - {name: claims_to_customers, left_table: claims, right_table: customers, join_type: inner, relationship_type: many_to_one,
+     relationship_columns: [{left_column: customer_id, right_column: customer_id}]}
+  - {name: claims_to_hospitals, left_table: claims, right_table: hospitals, join_type: left_outer, relationship_type: many_to_one,
+     relationship_columns: [{left_column: hospital_id, right_column: hospital_id}]}
+  - {name: policies_to_customers, left_table: policies, right_table: customers, join_type: inner, relationship_type: many_to_one,
+     relationship_columns: [{left_column: customer_id, right_column: customer_id}]}
+  - {name: documents_to_claims, left_table: claim_documents, right_table: claims, join_type: inner, relationship_type: many_to_one,
+     relationship_columns: [{left_column: claim_id, right_column: claim_id}]}
+  - {name: interactions_to_claims, left_table: interactions, right_table: claims, join_type: inner, relationship_type: many_to_one,
+     relationship_columns: [{left_column: claim_id, right_column: claim_id}]}
+
+verified_queries:               # tested against the warehouse; also seeds the sql_examples collection (spec 04)
+  - name: pending_documents_count
+    question: How many claims are waiting on documents?
+    sql: SELECT COUNT(*) AS claims FROM silver.claims WHERE claim_status = 'Pending Documents'
+  - name: rejection_rate_by_product_2025
+    question: What was the rejection rate by product in 2025?
+    sql: >-
+      SELECT product_name, COUNT(*) AS claims,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE claim_status = 'Rejected') / COUNT(*), 1) AS rejection_rate_pct
+      FROM silver.claims WHERE claim_date >= DATE '2025-01-01' AND claim_date < DATE '2026-01-01'
+      GROUP BY product_name ORDER BY rejection_rate_pct DESC
+  - name: top_rejection_reasons
+    question: What are the most common rejection reasons?
+    sql: >-
+      SELECT rejection_or_adjustment_reason AS reason, COUNT(*) AS claims FROM silver.claims
+      WHERE claim_status = 'Rejected' GROUP BY 1 ORDER BY claims DESC
+  - name: avg_claim_by_diagnosis_health
+    question: What is the average claim amount by diagnosis for health claims?
+    sql: >-
+      SELECT diagnosis_or_loss_type AS diagnosis, ROUND(AVG(claim_amount)) AS avg_claim_amount, COUNT(*) AS claims
+      FROM silver.claims WHERE policy_type = 'Health' GROUP BY 1 ORDER BY avg_claim_amount DESC
+  - name: monthly_claims_2025
+    question: How many claims were filed each month in 2025?
+    sql: >-
+      SELECT date_trunc('month', claim_date) AS month, COUNT(*) AS claims FROM silver.claims
+      WHERE claim_date >= DATE '2025-01-01' AND claim_date < DATE '2026-01-01' GROUP BY 1 ORDER BY 1
+  - name: open_claims_by_status
+    question: Show open claims by status.
+    sql: >-
+      SELECT claim_status, COUNT(*) AS claims FROM silver.claims
+      WHERE claim_status IN ('Submitted', 'Under Review', 'Pending Documents') GROUP BY 1 ORDER BY claims DESC
+  - name: approval_rate_by_policy_type
+    question: What is the approval rate for each line of business?
+    sql: >-
+      SELECT policy_type, ROUND(100.0 * COUNT(*) FILTER (WHERE claim_status IN ('Approved', 'Partially Approved')) / COUNT(*), 1)
+             AS approval_rate_pct, COUNT(*) AS claims
+      FROM silver.claims GROUP BY 1 ORDER BY 1
+  - name: non_network_hospitals_by_city
+    question: Which cities have the most non-network hospitals?
+    sql: >-
+      SELECT city, COUNT(*) AS non_network_hospitals FROM silver.hospitals
+      WHERE network_status = 'Non-Network' GROUP BY 1 ORDER BY non_network_hospitals DESC
+  - name: escalation_rate_by_channel
+    question: What share of interactions get escalated on each channel?
+    sql: >-
+      SELECT channel, ROUND(100.0 * COUNT(*) FILTER (WHERE resolution_status = 'Escalated') / COUNT(*), 1) AS escalated_pct
+      FROM silver.customer_interactions GROUP BY 1 ORDER BY escalated_pct DESC
+  - name: approved_amount_by_product
+    question: How much has been approved in total for each product?
+    sql: >-
+      SELECT product_name, SUM(approved_amount) AS total_approved_amount FROM silver.claims
+      GROUP BY 1 ORDER BY total_approved_amount DESC
+  - name: in_force_policies_by_product
+    question: How many policies are currently active for each product?
+    sql: >-
+      SELECT product_name, COUNT(*) AS in_force_policies FROM silver.policies
+      WHERE effective_status = 'In Force' GROUP BY 1 ORDER BY in_force_policies DESC
+  - name: missing_documents_by_type
+    question: Which required documents are most often missing?
+    sql: >-
+      SELECT document_type, COUNT(*) AS claims_missing FROM gold.claim_doc_checklist
+      WHERE required AND checklist_status IN ('Missing', 'No record') GROUP BY 1 ORDER BY claims_missing DESC
+  - name: claims_per_network_status
+    question: How do health claims split between network and non-network hospitals?
+    sql: >-
+      SELECT h.network_status, COUNT(*) AS claims FROM silver.claims c
+      JOIN silver.hospitals h ON h.hospital_id = c.hospital_id
+      WHERE c.policy_type = 'Health' GROUP BY 1 ORDER BY claims DESC
+  - name: negative_sentiment_by_intent
+    question: Which interaction intents have the most negative sentiment?
+    sql: >-
+      SELECT intent, COUNT(*) FILTER (WHERE sentiment = 'Negative') AS negative, COUNT(*) AS total
+      FROM silver.customer_interactions GROUP BY 1 ORDER BY negative DESC

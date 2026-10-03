@@ -1,0 +1,31 @@
+# Persona-based access (spec 08). Enforced in tool code and the SQL validator, never by prompt.
+version: 1
+personas:
+  customer:
+    description: Self-service policyholder; principal_id = customer_id
+    row_scope: own_customer        # every query is constrained to rows owned by principal_id
+    ownership_paths:               # how ownership is checked; interactions are reached ONLY via their claim
+      policies: policies.customer_id = :principal_id
+      claims: claims.customer_id = :principal_id
+      claim_documents: claim_id IN (SELECT claim_id FROM silver.claims WHERE customer_id = :principal_id)
+      customer_interactions: claim_id IN (SELECT claim_id FROM silver.claims WHERE customer_id = :principal_id)
+    hidden_columns: [fraud_risk_score, manual_review_flag, risk_segment]
+    tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim]
+    analyze_claim_view: customer   # rule names and next steps only; no escalation internals
+    can_resume_review: false
+  claims_agent:
+    description: Operations user handling individual claims
+    row_scope: all
+    hidden_columns: []
+    mask_columns_in_analytics: [customer_name]
+    tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim, run_analytics]
+    analyze_claim_view: full
+    can_resume_review: true
+  supervisor:
+    description: Claims supervisor and analyst; sees audit and analytics
+    row_scope: all
+    hidden_columns: []
+    mask_columns_in_analytics: []
+    tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim, run_analytics, portfolio_audit]
+    analyze_claim_view: full
+    can_resume_review: true

@@ -1,0 +1,32 @@
+# Required claim documents per policy type. Status: PROPOSED (open decision #3 in the architecture doc).
+# The dataset's document_type enum has exactly 8 values:
+#   Claim Form, ID Proof, Hospital Bill, Discharge Summary, Diagnostic Report, Prescription, Policy Copy, Cancelled Cheque
+# Requirements the policy wordings mention but the data cannot track are listed under `untracked`
+# and are shown to users as "not tracked in system", never as missing.
+version: 1
+status: proposed
+document_types: [Claim Form, ID Proof, Hospital Bill, Discharge Summary, Diagnostic Report, Prescription, Policy Copy, Cancelled Cheque]
+
+policy_types:
+  Health:
+    always: [Claim Form, ID Proof, Hospital Bill, Discharge Summary, Diagnostic Report, Prescription]
+    conditional:
+      - when: {field: network_status, equals: Non-Network}   # reimbursement path needs bank details
+        add: [Cancelled Cheque]
+    optional: [Policy Copy]
+    untracked: []
+    source: "Health wordings §8 Reimbursement process, §10 Claim procedure"
+  Motor:
+    always: [Claim Form, ID Proof, Policy Copy, Cancelled Cheque]
+    conditional: []
+    optional: []
+    untracked: [Repair estimate, Registration certificate, Driving licence, FIR where applicable, Vehicle inspection report]
+    source: "Motor Protect Comprehensive §10, Car Shield Plus §10, Two Wheeler Secure §10"
+  Travel:
+    always: [Claim Form, ID Proof, Policy Copy, Cancelled Cheque]
+    conditional:
+      - when: {field: diagnosis_or_loss_type, in: [Medical Emergency]}
+        add: [Hospital Bill, Discharge Summary]
+    optional: []
+    untracked: [Travel documents, Incident report, Carrier certificate]
+    source: "Global Travel Secure §10, Student Travel Protect §10"

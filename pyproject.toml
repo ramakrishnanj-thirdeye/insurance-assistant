@@ -1,0 +1,61 @@
+[project]
+name = "insurai"
+version = "0.1.0"
+description = "Insurance Claims & Policy Intelligence Assistant (local-first PoC)"
+requires-python = ">=3.12"
+# Versions are resolved and pinned by `uv lock`; lower bounds mark features the specs rely on.
+dependencies = [
+  "duckdb>=1.1",                 # SET VARIABLE / getvariable
+  "sqlglot",
+  "polars",
+  "pyarrow",
+  "pydantic>=2.7",
+  "pydantic-settings",
+  "pyyaml",
+  "rapidfuzz",
+  "qdrant-client>=1.10",         # query API with prefetch + fusion
+  "fastembed",
+  "langchain",                   # init_chat_model
+  "langchain-core",
+  "langchain-anthropic",
+  "langchain-ollama",
+  "langgraph",
+  "langgraph-checkpoint-sqlite",
+  "langchain-mcp-adapters",
+  "mcp[cli]>=1.9,<2",            # mcp.server.fastmcp.FastMCP (2.x renamed it to MCPServer)
+  "fastapi",
+  "uvicorn[standard]",
+  "sse-starlette",
+  "httpx",
+  "httpx-sse",
+  "streamlit",
+  "altair",
+  "arize-phoenix",
+  "openinference-instrumentation-langchain",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "types-PyYAML"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/insurai"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "unit: fast, no external state",
+  "integration: needs data/warehouse.duckdb and/or data/qdrant",
+  "llm: calls an LLM (excluded from make test)",
+  "slow: takes more than 10 seconds",
+]
