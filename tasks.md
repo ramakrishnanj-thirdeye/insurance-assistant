@@ -9,9 +9,9 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - **Gate:** `make lint test` green
 
 ## M1 Warehouse — spec 01
-- [ ] ref tables loader + `coverage_grid` (shared with spec 03)
-- [ ] build_warehouse from specs/reference/warehouse.sql; DQ report
-- [ ] `db.connect(read_only=True)`
+- [x] ref tables loader + `coverage_grid` (shared with spec 03)
+- [x] build_warehouse from specs/reference/warehouse.sql; DQ report
+- [x] `db.connect(read_only=True)`
 - **Gate:** AC-01-01 … AC-01-11
 
 ## M2 Policy knowledge + retrieval — specs 03, 04
@@ -36,6 +36,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 
 ## M5 Claim Dossier — spec 07
 - [ ] Rules loader/compiler, evaluate_claim, `make rules`
+- [ ] Issue: replace the M1 stub `src/insurai/rules/materialise.py` (logs a warning, exits 0 so `make data` works) with `materialise_portfolio`
 - [ ] Dossier subgraph with interrupt; next best actions; customer view
 - [ ] claim_analysis.jsonl (22 more curated claims, hand-checked)
 - **Gate:** AC-07-*; blocker_mention = 1.0; invented_findings = 0

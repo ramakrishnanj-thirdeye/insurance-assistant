@@ -82,23 +82,23 @@ Settings consumed: `as_of_date`, `paths.raw_dir`, `paths.warehouse`, `paths.dq_r
 | Recorded Active but not In Force | 50,811 |
 | Interactions whose logged customer ≠ claim owner | 179,999 of 180,000 |
 | Interactions dated before their claim | 66,401 |
-| Policies in a multi-policy continuous chain | 2,110 (strictly back-to-back renewals: 12) |
+| Policies extending a continuous chain (cover start earlier than their own start) / in multi-policy chains / strictly back-to-back renewals | 2,110 / 4,171 / 12 |
 | Schedule waiting 730 days on a 365-day policy | ≈ 20% of policies; such claims can never clear R03 |
 | Approved claims with a Missing upload (raw) | 21,775 |
-| Fraud score: manual-review rate per score band | 17.8–21.8%, i.e. no signal |
+| Fraud score: manual-review rate per score band (0–0.2, 0.2–0.4, 0.4–0.6, 0.6–1.0) | 17.8–21.9%, i.e. no signal |
 
 ## Acceptance criteria
-- [ ] AC-01-01 `make data` builds `data/warehouse.duckdb` from `data/raw/` in < 60 s on a laptop.
-- [ ] AC-01-02 Row counts: customers 50,000; policies 75,000; claims 120,000; claim_documents 600,010; hospitals 1,200; customer_interactions 180,000.
-- [ ] AC-01-03 Integrity: primary keys unique; zero orphan foreign keys for claims→policies, claims→customers, claims→hospitals, documents→claims, interactions→claims, interactions→customers, policies→customers. Build fails otherwise.
-- [ ] AC-01-04 Derived counts equal the anomaly table above (as-of 2026-10-01).
-- [ ] AC-01-05 `ref.diagnosis_coverage` has 85 rows, 32 with required_waiting_days > 0; Critical Care Elite/Maternity = not_covered; Senior Health Shield/Maternity = not_applicable; Family Care Gold/Maternity = conditional; Critical Care Elite/Cardiac Procedure = covered with 90 days; Health Secure Plus/Cataract = 730 days, basis assumption; Accidental Injury = 0 days everywhere.
-- [ ] AC-01-06 Checklist for demo claims: CLM300210 missing [Claim Form, Discharge Summary, ID Proof, Prescription], pending [Diagnostic Report, Hospital Bill]; CLM300500 missing [Policy Copy]; CLM300101 missing [Prescription], pending [Claim Form].
-- [ ] AC-01-07 expected_payable: CLM300210 = 58,119; CLM300500 = 34,184; CLM300101 = 57,091.
-- [ ] AC-01-08 `data/data_quality_report.json` lists every integrity check (pass/fail) and every anomaly metric (value) with a description.
-- [ ] AC-01-09 Two consecutive builds produce identical row counts and identical `SELECT md5(string_agg(...))` checksums per gold table.
-- [ ] AC-01-10 Runtime connections are read-only; a write attempt raises.
-- [ ] AC-01-11 Single-claim lookups on gold tables return in < 50 ms.
+- [x] AC-01-01 `make data` builds `data/warehouse.duckdb` from `data/raw/` in < 60 s on a laptop.
+- [x] AC-01-02 Row counts: customers 50,000; policies 75,000; claims 120,000; claim_documents 600,010; hospitals 1,200; customer_interactions 180,000.
+- [x] AC-01-03 Integrity: primary keys unique; zero orphan foreign keys for claims→policies, claims→customers, claims→hospitals, documents→claims, interactions→claims, interactions→customers, policies→customers; every claim's customer_id equals its policy's customer_id; every claim's policy_type equals its policy's policy_type; every claim has a ref.diagnosis_coverage row. Build fails otherwise.
+- [x] AC-01-04 Derived counts equal the anomaly table above (as-of 2026-10-01).
+- [x] AC-01-05 `ref.diagnosis_coverage` has 85 rows, 32 with required_waiting_days > 0; Critical Care Elite/Maternity = not_covered; Senior Health Shield/Maternity = not_applicable; Family Care Gold/Maternity = conditional; Critical Care Elite/Cardiac Procedure = covered with 90 days; Health Secure Plus/Cataract = 730 days, basis assumption; Accidental Injury = 0 days everywhere.
+- [x] AC-01-06 Checklist for demo claims: CLM300210 missing [Claim Form, Discharge Summary, ID Proof, Prescription], pending [Diagnostic Report, Hospital Bill]; CLM300500 missing [Policy Copy]; CLM300101 missing [Prescription], pending [Claim Form].
+- [x] AC-01-07 expected_payable: CLM300210 = 58,119; CLM300500 = 34,184; CLM300101 = 57,091.
+- [x] AC-01-08 `data/data_quality_report.json` lists every integrity check (pass/fail) and every anomaly metric (value) with a description.
+- [x] AC-01-09 Two consecutive builds produce identical row counts and identical `SELECT md5(string_agg(...))` checksums per gold table.
+- [x] AC-01-10 Runtime connections are read-only; a write attempt raises.
+- [x] AC-01-11 Single-claim lookups on gold tables return in < 50 ms.
 
 ## Eval hooks
 Feeds the sql_facts slice (spec 11) and every rule (spec 07). No eval gate of its own.
