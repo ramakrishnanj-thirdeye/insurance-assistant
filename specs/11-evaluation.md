@@ -56,7 +56,9 @@ python -m insurai.eval.run --suite fast|full|ablation [--profile api-lite] [--vi
 - fast = all deterministic slices (sql_facts, retrieval metrics, routing) + 30 LLM-judged items sampled with seed 42.
 - full = everything; ablation = policy_clauses retrieval only under configs A–F (spec 04).
 - In-process graph by default; `--via-api` calls spec 09.
-- Each item runs in a fresh thread_id; multi_turn items reuse one thread across their turns.
+- Each item runs in a fresh thread; multi_turn items reuse one thread across their turns.
+- Thread isolation: in-process runs use an `InMemorySaver`, so nothing touches `paths.checkpoints`.
+  `--via-api` runs create threads with `source="eval"` and delete them at the end of the run (`--keep-threads` to inspect).
 - Output: `eval/reports/<suite>_<timestamp>.json` (config, git SHA, profile, coverage status, per-item results with trace IDs, metric summary) + `.md` summary.
 - Phoenix: each item's root span carries `eval.item_id`.
 
@@ -77,4 +79,5 @@ promotes the latest full run to baseline after review.
 - [ ] AC-11-04 `make eval-fast` runs in < 10 min on api-lite and exits non-zero on a regression (test with a deliberately broken filter).
 - [ ] AC-11-05 Ablation report includes all six configs with recall@5, product_precision@5, MRR and latency.
 - [ ] AC-11-06 Judge calibration agreement reported; ≥ 80% before the first client demo.
+- [ ] AC-11-08 After a full run (in-process or `--via-api`), `data/checkpoints.sqlite` contains no threads with source eval.
 - [ ] AC-11-07 The Eval Dashboard (spec 10) reads these reports without transformation.

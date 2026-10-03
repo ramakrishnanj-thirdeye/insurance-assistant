@@ -1,6 +1,6 @@
 # 09 – API (FastAPI)
 
-Milestone: M8 (a minimal /chat lands in M4 for manual testing) · Depends on: 06, 07, 11
+Milestone: M8 (a minimal /chat and the thread store land in M4) · Depends on: 06, 07, 11 · ADR: 009 (threads)
 
 ## Goal
 A thin, typed, streaming API over the graph and tools, so the UI is swappable and evals can run through it.
@@ -10,7 +10,10 @@ A thin, typed, streaming API over the graph and tools, so the UI is swappable an
 | --- | --- | --- | --- |
 | POST | /chat | ChatRequest {message, thread_id?, persona, principal_id?} | SSE stream (below) |
 | POST | /chat/resume | ResumeRequest {thread_id, action: approve|override|request_info, note} | SSE stream |
-| GET | /threads/{thread_id} | — | message history + last trace |
+| GET | /threads | ?limit=20&offset=0 | ThreadSummary list for the caller's persona and principal, newest first |
+| GET | /threads/{thread_id} | — | ThreadDetail: status, user and assistant messages, last trace, pending review summary |
+| PATCH | /threads/{thread_id} | {title} | ThreadSummary |
+| DELETE | /threads/{thread_id} | — | 204; removes the thread record and its checkpoints |
 | GET | /claims/{claim_id}/dossier | ?narrate=false&persona=&principal_id= | ClaimAssessment |
 | GET | /coverage-matrix | ?product=&attribute= | CoverageCells |
 | GET | /audit/summary | persona must be supervisor | PortfolioReport counts by rule, flag, product |
@@ -20,7 +23,45 @@ A thin, typed, streaming API over the graph and tools, so the UI is swappable an
 | GET | /eval/reports/{run_id} | — | full report JSON |
 | GET | /health | — | {warehouse, qdrant, llm_profile, as_of, coverage_status, versions} |
 
-Persona travels as body fields for /chat and as headers `X-Persona`, `X-Principal-Id` elsewhere (PoC only; documented).
+Identity travels as headers on every endpoint: `X-Persona` (required) and `X-Principal-Id` (required for
+customer; optional operator name for staff personas, default `staff`). PoC only; production maps SSO claims
+to the same two values.
+
+## Thread management (ADR-009)
+```python
+# src/insurai/agent/threads.py
+ThreadStatus = Literal["active", "running", "awaiting_review"]
+class ThreadRecord(BaseModel):
+    thread_id: str                  # uuid4 hex, created server-side only
+    persona: Persona; principal_id: str
+    title: str                      # first user message, PII-masked, <= 60 chars + "…"
+    status: ThreadStatus; source: Literal["ui", "api", "eval", "demo"]
+    turn_count: int; last_entities: Entities | None
+    created_at: datetime; updated_at: datetime   # wall-clock UTC metadata, not business dates (CLAUDE.md rule 5 is about business logic)
+class ThreadStore:                  # table `threads` in the same SQLite file as the checkpointer
+    async def create(self, persona, principal_id, first_message, source) -> ThreadRecord: ...
+    async def authorize(self, thread_id, persona, principal_id) -> ThreadRecord: ...  # ThreadNotFound -> 404, ThreadForbidden -> 403
+    async def list(self, persona, principal_id, limit=20, offset=0) -> list[ThreadRecord]: ...
+    async def set_status(self, thread_id, status) -> None: ...
+    async def touch(self, thread_id, entities: Entities | None) -> None: ...  # turn_count += 1, updated_at, last_entities
+    async def rename(self, thread_id, title) -> None: ...
+    async def delete(self, thread_id) -> None: ...   # also checkpointer.adelete_thread(thread_id)
+    async def recover(self) -> int: ...              # at startup: running -> active; returns count
+```
+Rules:
+1. **Ownership.** A thread is bound to the persona and principal that created it. Any request whose identity
+   differs gets 403 `THREAD_FORBIDDEN`, including reads. Unknown IDs get 404 `THREAD_NOT_FOUND`.
+   Clients never invent thread IDs; `/chat` without `thread_id` creates one.
+2. **Status machine.** active → running (a `/chat` or `/chat/resume` starts) → active (final) or
+   awaiting_review (interrupt) → running (resume) → active.
+3. **Busy.** A per-thread `asyncio.Lock` plus the persisted status: a second `/chat` or `/chat/resume` while
+   running → 409 `THREAD_BUSY`.
+4. **Pending review.** `/chat` on an awaiting_review thread → 409 `REVIEW_PENDING` (body includes the review
+   summary so the UI can show the card). `/chat/resume` on a thread that is not awaiting_review → 409 `NO_PENDING_REVIEW`.
+5. **Errors before streaming.** 403, 404 and 409 are returned as problem+json before the SSE stream opens.
+6. **Recovery.** On startup, `recover()` resets threads left in running (crash or reload) to active.
+7. **Title.** Set once from the first user message after PII masking; rename via PATCH.
+8. **Cleanup.** `make reset-threads` deletes `paths.checkpoints` (stop the API first; CLAUDE.md Windows note).
 
 ## SSE events (`event:` name, `data:` JSON)
 `thread` {thread_id} → `node` {name, status: start|end, ms} (repeated) → `tool` {name, args_redacted, ms, ok} →
@@ -39,4 +80,10 @@ citations, trace, assessment?} → `done`. Errors: `error` {code, message} then 
 - [ ] AC-09-03 Interrupt flow over HTTP: /chat (agent, analyze CLM300210) ends with `interrupt`; /chat/resume approve ends with `final` containing the decision.
 - [ ] AC-09-04 /audit/* with persona customer or claims_agent → 403.
 - [ ] AC-09-05 /claims/{id}/dossier without narrate returns in < 500 ms.
+- [ ] AC-09-07 Ownership: customer B reading or continuing customer A's thread → 403; a claims_agent using a customer's thread → 403; an unknown ID → 404.
+- [ ] AC-09-08 Two concurrent `/chat` calls on one thread: exactly one streams, the other gets 409 THREAD_BUSY.
+- [ ] AC-09-09 `/chat` on an awaiting_review thread → 409 REVIEW_PENDING with the summary; `/chat/resume` on an active thread → 409 NO_PENDING_REVIEW.
+- [ ] AC-09-10 `GET /threads` returns only the caller's threads, newest first, with titles PII-masked and at most 60 characters plus an ellipsis.
+- [ ] AC-09-11 `DELETE /threads/{id}` removes the record and its checkpoints; a later GET returns 404.
+- [ ] AC-09-12 A thread left in running when the API stops is active after restart.
 - [ ] AC-09-06 `python -m insurai.eval.run --via-api` produces the same metrics as in-process (± judge noise) on the fast suite.

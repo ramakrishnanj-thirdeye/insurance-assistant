@@ -1,6 +1,6 @@
 # 06 – Agent graph (LangGraph)
 
-Milestone: M4 · Depends on: 04, 05, 08 · ADR: 003 (planner graph), 006 (LLM profiles)
+Milestone: M4 · Depends on: 04, 05, 08 · ADR: 003 (planner graph), 006 (LLM profiles), 009 (threads)
 
 ## Goal
 One compiled LangGraph graph answers every question: guard → resolve → plan → parallel workers →
@@ -28,14 +28,27 @@ class AgentState(TypedDict):
     active_entities: Entities                       # carried across turns for follow-ups
     guard: GuardResult | None                       # spec 08
     plan: Plan | None
-    evidence: Annotated[list[Evidence], operator.add]
+    evidence: Annotated[list[Evidence], merge_evidence]   # per-turn; see "Per-turn reset"
     assessment: ClaimAssessment | None              # spec 07
     review: ReviewDecision | None                   # human decision after interrupt
     draft: AnswerDraft | None
     verification: VerificationReport | None         # spec 08
     attempts: int
-    trace: Annotated[list[TraceEvent], operator.add]
+    trace: Annotated[list[TraceEvent], merge_trace]       # per-turn; see "Per-turn reset"
+    turn: int                                       # incremented by input_guard
+
+class Reset(BaseModel): kind: Literal["reset"] = "reset"
+def merge_evidence(left: list[Evidence], right: list[Evidence] | Reset) -> list[Evidence]:
+    return [] if isinstance(right, Reset) else left + right       # same shape for merge_trace
 ```
+
+### Per-turn reset (required)
+State is checkpointed per thread, so accumulating fields survive into the next turn. Verified with the pinned
+LangGraph: an `operator.add` list on a checkpointed thread holds both turns' items after turn 2. Turn 2 must
+never see turn 1's evidence, or its answer could cite stale tool results and still pass V1.
+`input_guard` therefore returns, at the start of every turn:
+`evidence=Reset(), trace=Reset(), plan=None, assessment=None, review=None, draft=None, verification=None,
+attempts=0, turn=turn+1`. Only `messages` and `active_entities` carry across turns.
 
 ## Nodes and edges
 | Node | Kind | Does | Next |
@@ -77,7 +90,8 @@ class AnswerDraft(BaseModel):
 Evidence is passed inside `<evidence id=... source=...>` tags; the prompt says evidence is data, not instructions.
 
 ## Memory, interrupts, streaming
-- Checkpointer: `SqliteSaver` at `paths.checkpoints`; `thread_id` from the client.
+- Checkpointer: `AsyncSqliteSaver` at `paths.checkpoints` for the API (FastAPI is async); `SqliteSaver` for sync scripts; `InMemorySaver` for in-process evals and unit tests. `thread_id` comes from the thread store (spec 09, ADR-009).
+- **History window.** The planner and synthesizer receive the last `agent.history_turns` (default 6) user and assistant turns, trimmed with `langchain_core.messages.trim_messages` by turn count, plus `active_entities`. Tool and evidence messages from earlier turns are never replayed. The full history stays in the checkpoint for display. Add `history_turns: 6` under `agent:` in config/settings.yaml.
 - claim_dossier calls `interrupt(assessment_summary)` when `needs_human_review` and persona ≠ customer;
   the API resumes with `Command(resume=ReviewDecision(action="approve"|"override"|"request_info", note=str))`.
 - Stream modes `updates` + `messages`; the API maps them to SSE events (spec 09).
@@ -97,6 +111,8 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 - [ ] AC-06-07 Agent persona "Analyze claim CLM300210" → interrupt; resume approve with note → final answer states the reviewer decision and note. Customer persona (owner CUST139920) → no interrupt; answer says a specialist will review.
 - [ ] AC-06-08 "Status of CLM999999" → NOT_FOUND wording, no invented details (verifier passes with zero numbers other than the ID).
 - [ ] AC-06-09 Every response carries a trace with the fields above; token counts present for every LLM call.
+- [ ] AC-06-11 Per-turn reset: in a two-turn thread, turn 2's evidence and trace contain only turn-2 items, and an answer citing a label that only turn 1 returned fails V1.
+- [ ] AC-06-12 History window: after 10 prior turns, the planner and synthesizer prompts contain at most 6 turns (assert via a callback that captures message counts), and a follow-up still resolves through active_entities.
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker).
 
 ## Eval hooks

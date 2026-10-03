@@ -31,7 +31,8 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] State, nodes, fast path, planner prompt with few-shots, Send fan-out, synthesize, verify stub (V1–V4)
 - [ ] Checkpointer, follow-ups, clarifications
 - [ ] multi_turn.jsonl (10)
-- **Gate:** AC-06-*; routing ≥ 95%; correctness ≥ 90% on sql_facts + policy_clauses
+- [ ] Thread store, ownership, status machine, per-turn state reset, history window (specs 06 and 09, ADR-009)
+- **Gate:** AC-06-*, AC-06-11, AC-06-12, AC-09-07 … AC-09-09, AC-09-12; routing ≥ 95%; correctness ≥ 90% on sql_facts + policy_clauses
 
 ## M5 Claim Dossier — spec 07
 - [ ] Rules loader/compiler, evaluate_claim, `make rules`
@@ -54,7 +55,8 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Full API with SSE and resume; audit and eval endpoints
 - [ ] Five Streamlit pages; Trace panel; review card
 - [ ] `make demo-check`; rehearse the run-of-show
-- **Gate:** AC-09-*, AC-10-*; demo-check passes twice
+- [ ] Thread list, rename and delete endpoints; Conversations sidebar (specs 09, 10)
+- **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 
 ## Open decisions (defaults applied; change here if the business decides otherwise)
 - [ ] #1 LLM profile: api-lite (ADR-006)
