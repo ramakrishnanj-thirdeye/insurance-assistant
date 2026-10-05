@@ -165,6 +165,11 @@ def _matrix() -> CoverageMatrix:
     return load_coverage(COVERAGE_FILE)
 
 
+def section_name(product: str, section_no: int) -> str | None:
+    """A section's name as worded in the product's policy file (None when the product has no such section)."""
+    return _section_names().get((product, section_no))
+
+
 @lru_cache(maxsize=1)
 def _section_names() -> dict[tuple[str, int], str]:
     """Section names as worded in the policy files, so cell labels equal chunk labels."""

@@ -6,19 +6,37 @@
 #                   fail           otherwise
 # NULLs count as false. Severity applies to fail (and to review as "Needs review").
 # Severities: blocker | warning | info | escalate.  Thresholds are injected from settings.yaml.
-version: 1
+# severity_if / message_if: the first `when` that holds picks the severity or message; otherwise the default.
+# Messages and actions use {column} placeholders over gold.claim_facts, {threshold} names from settings,
+# and the derived values network_alternatives and untracked. `make rules` validates every expression and
+# placeholder (load_rules) before anything runs.
+version: 2
 
 citations:                      # common-terms sections cited by rules (identical in all wordings)
   reimbursement: {product: ALL, section_no: 8, section_name: "Reimbursement Process"}
   human_review:  {product: ALL, section_no: 13, section_name: "Human Review"}
+
+formats:
+  inr: [claim_amount, approved_amount, expected_payable, sum_insured, deductible, high_value_inr]
+  none: "none"                  # an empty list or NULL
+  labels:                       # raw values shown in words
+    coverage_status:
+      covered: covered
+      needs_review: needs review
+      conditional: conditional
+      not_covered: not covered
+      not_applicable: not applicable
 
 rules:
   - id: R01
     name: Policy in force on claim date
     severity: blocker
     pass_if: "in_policy_period"
-    evidence: [claim_date, policy_start_date, policy_end_date]
-    message: "Claim date {claim_date} falls outside the policy period {policy_start_date} to {policy_end_date}."
+    evidence: [claim_date, policy_start_date, policy_end_date, days_since_policy_start]
+    message: "The claim date {claim_date} falls outside the policy period {policy_start_date} to {policy_end_date}."
+    message_if:
+      - when: "days_since_policy_start < 0"
+        message: "The claim date {claim_date} is before the policy started on {policy_start_date}, so it falls outside the policy period {policy_start_date} to {policy_end_date}."
     cite: schedule
 
   - id: R02
@@ -35,7 +53,7 @@ rules:
     applies_if: "waiting_period_days > 0 AND days_since_policy_start >= 0"
     pass_if: "days_since_policy_start >= waiting_period_days"
     evidence: [days_since_policy_start, waiting_period_days]
-    message: "Claim made {days_since_policy_start} days after policy start; the schedule's waiting period is {waiting_period_days} days."
+    message: "The claim was made {days_since_policy_start} days after the policy started, inside the schedule's {waiting_period_days}-day waiting period."
     cite: schedule
 
   - id: R04
@@ -45,7 +63,7 @@ rules:
     applies_if: "required_waiting_days > 0 AND days_since_cover_start >= 0"
     pass_if: "days_since_cover_start >= required_waiting_days"
     evidence: [days_since_cover_start, required_waiting_days, waiting_reason, continuous_cover_start]
-    message: "{diagnosis_or_loss_type} needs {required_waiting_days} days of continuous cover ({waiting_reason}); cover began {continuous_cover_start}, {days_since_cover_start} days before the claim."
+    message: "{diagnosis_or_loss_type} needs {required_waiting_days} days of continuous cover ({waiting_reason}); cover began on {continuous_cover_start}, {days_since_cover_start} days before the claim."
     cite: coverage
 
   - id: R05
@@ -54,7 +72,16 @@ rules:
     pass_if: "coverage_status = 'covered'"
     review_if: "coverage_status IN ('needs_review', 'conditional') OR coverage_status IS NULL"
     evidence: [diagnosis_or_loss_type, product_name, coverage_status, coverage_reason]
-    message: "{diagnosis_or_loss_type} is {coverage_status} under {product_name}."
+    message: "Coverage of {diagnosis_or_loss_type} under {product_name} is not recorded, so it needs review."
+    message_if:
+      - when: "coverage_status = 'needs_review'"
+        message: "{diagnosis_or_loss_type} isn't a listed critical illness under {product_name}, so it needs review ({coverage_reason})."
+      - when: "coverage_status = 'not_covered'"
+        message: "{diagnosis_or_loss_type} is not covered under {product_name}."
+      - when: "coverage_status = 'not_applicable'"
+        message: "{product_name} does not cover {diagnosis_or_loss_type}."
+      - when: "coverage_status = 'conditional'"
+        message: "{diagnosis_or_loss_type} is covered under {product_name} only conditionally: {coverage_reason}."
     cite: coverage
 
   - id: R06
@@ -71,7 +98,10 @@ rules:
     pass_if: "docs_required_pending = 0 AND docs_required_rejected = 0"
     review_if: "docs_required_rejected = 0"
     evidence: [pending_doc_types, rejected_doc_types]
-    message: "Pending verification: {pending_doc_types}. Rejected: {rejected_doc_types}."
+    message: "These required documents were rejected: {rejected_doc_types}. Pending verification: {pending_doc_types}."
+    message_if:
+      - when: "docs_required_rejected = 0"
+        message: "These required documents are pending verification: {pending_doc_types}."
     cite: reimbursement
 
   - id: R08
@@ -79,7 +109,7 @@ rules:
     severity: info
     applies_if: "policy_type = 'Health' AND hospital_id IS NOT NULL"
     pass_if: "network_status = 'Network'"
-    evidence: [hospital_name, network_status, hospital_specialty]
+    evidence: [hospital_name, network_status, hospital_specialty, hospital_city]
     message: "{hospital_name} is outside the network, so the claim follows the reimbursement path, not cashless."
     cite: none
 
@@ -89,7 +119,16 @@ rules:
     applies_if: "claim_status IN ('Approved', 'Partially Approved')"
     pass_if: "approved_amount <= expected_payable AND approved_amount <= sum_insured"
     evidence: [claim_amount, approved_amount, expected_payable, sum_insured, deductible, co_pay_pct]
-    message: "Approved {approved_amount} exceeds the expected payable {expected_payable} after a {deductible} deductible and {co_pay_pct}% co-pay."
+    message: "The approved amount {approved_amount} exceeds the expected payable {expected_payable} after a {deductible} deductible and a {co_pay_pct}% co-pay."
+    message_if:
+      - when: "approved_amount > sum_insured AND approved_amount <= expected_payable"
+        message: "The approved amount {approved_amount} exceeds the sum insured {sum_insured}."
+      - when: "coalesce(deductible, 0) = 0 AND coalesce(co_pay_pct, 0) > 0"
+        message: "The approved amount {approved_amount} exceeds the expected payable {expected_payable} after a {co_pay_pct}% co-pay."
+      - when: "coalesce(co_pay_pct, 0) = 0 AND coalesce(deductible, 0) > 0"
+        message: "The approved amount {approved_amount} exceeds the expected payable {expected_payable} after a {deductible} deductible."
+      - when: "coalesce(co_pay_pct, 0) = 0 AND coalesce(deductible, 0) = 0"
+        message: "The approved amount {approved_amount} exceeds the expected payable {expected_payable}."
     cite: schedule
 
   - id: R10
@@ -97,7 +136,7 @@ rules:
     severity: escalate
     pass_if: "fraud_risk_score < {fraud_review_score}"
     evidence: [fraud_risk_score]
-    message: "Fraud risk score {fraud_risk_score} is at or above the review threshold."
+    message: "The fraud risk score {fraud_risk_score} is at or above the review threshold of {fraud_review_score}."
     cite: human_review
     hidden_from: [customer]
 
@@ -106,7 +145,7 @@ rules:
     severity: escalate
     pass_if: "NOT high_value"
     evidence: [claim_amount]
-    message: "Claim amount {claim_amount} is above the high-value threshold."
+    message: "The claim amount {claim_amount} is above the high-value threshold of {high_value_inr}."
     cite: human_review
 
   - id: R12
@@ -114,7 +153,12 @@ rules:
     severity: escalate
     pass_if: "manual_review_flag = 0 AND kyc_status = 'Verified'"
     evidence: [manual_review_flag, kyc_status]
-    message: "Manual review flag is {manual_review_flag}; KYC status is {kyc_status}."
+    message: "The customer's KYC status is {kyc_status}, not Verified."
+    message_if:
+      - when: "manual_review_flag = 1 AND kyc_status = 'Verified'"
+        message: "The claim is flagged for manual review."
+      - when: "manual_review_flag = 1"
+        message: "The claim is flagged for manual review, and the customer's KYC status is {kyc_status}, not Verified."
     cite: human_review
     hidden_from: [customer]
 
@@ -124,6 +168,7 @@ escalation:
 
 decision_consistency:
   # Compares the recorded decision with rule outcomes; drives the leakage radar.
+  # <any blocker fail> = any rule whose configured severity is blocker has status fail.
   - id: C1
     name: Paid despite blockers
     when: "claim_status IN ('Approved', 'Partially Approved') AND <any blocker fail>"
@@ -136,3 +181,61 @@ decision_consistency:
   - id: C4
     name: Rejected for waiting period but waiting period completed
     when: "rejection_or_adjustment_reason = 'Waiting period not completed' AND NOT within_schedule_waiting AND days_since_policy_start >= 0"
+
+insights:
+  # Portfolio-only counts for the leakage radar (gold.rule_results); never shown on a single claim.
+  - id: P1
+    name: Maternity paid on a product whose wording excludes maternity
+    when: "diagnosis_or_loss_type = 'Maternity' AND claim_status IN ('Approved', 'Partially Approved') AND coverage_status IN ('not_covered', 'not_applicable')"
+
+next_best_actions:
+  # Deterministic, ordered by severity (blocker, escalate, warning, info), then by this list. `status` is the
+  # rule status that triggers the action; customer_text is the plain-language step for the customer view.
+  - rule: [R06]
+    status: fail
+    text: "Request {missing_doc_types} from the customer"
+    customer_text: "Upload {missing_doc_types}"
+  - rule: [R07]
+    status: review
+    text: "Verify {pending_doc_types}"
+    customer_text: "Wait while we verify {pending_doc_types}"
+  - rule: [R07]
+    status: fail
+    text: "Ask for replacements of {rejected_doc_types}"
+    customer_text: "Send replacements for {rejected_doc_types}"
+  - rule: [R01]
+    status: fail
+    text: "Confirm the policy period; the claim date falls outside it"
+    customer_text: "Check the policy period on your schedule; the claim date falls outside it"
+  - rule: [R05]
+    status: review
+    text: "Confirm whether {diagnosis_or_loss_type} is covered under {product_name}"
+    customer_text: "We will confirm whether {diagnosis_or_loss_type} is covered under {product_name}"
+  - rule: [R08]
+    status: fail
+    text: "Advise the reimbursement path; network alternatives: {network_alternatives}"
+    customer_text: "Keep your bills for reimbursement; network hospitals nearby: {network_alternatives}"
+  - rule: [R10, R11, R12]
+    status: fail
+    text: "Route to the manual review queue"
+    customer_text: "A claims specialist will review your claim"
+  - untracked: true
+    text: "Collect {untracked} outside the system; they are not tracked in the document records"
+    customer_text: "Keep {untracked} ready; they are not tracked in the document records"
+
+dossier:
+  # Explain vs assess (spec 06 finalize_plan): a claim_analysis turn is an assessment, which may pause for
+  # human review, only when the question asks for one; otherwise it is explained without an interrupt.
+  # Whole words, case-insensitive; status phrases (below) are removed first so "under review" is not a verb.
+  assess_keywords: [analyse, analyze, analysis, assess, assessment, review, decide, decision, approve, reject,
+                    adjudicate, evaluate, evaluation]
+  # False premise check: a status word in the question that does not match the claim's actual status is
+  # corrected before the narrative. Each word lists the claim_status values it is consistent with.
+  status_words:
+    pending: [Pending Documents, Submitted, Under Review]
+    rejected: [Rejected]
+    approved: [Approved, Partially Approved]
+    under review: [Under Review]
+    settled: [Approved, Partially Approved]
+    paid: [Approved, Partially Approved]
+  premise_ignore: [pending verification, approved amount, paid amount, rejected document, rejected documents]  # not claim statuses

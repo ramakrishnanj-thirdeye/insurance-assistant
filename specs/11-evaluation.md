@@ -13,7 +13,7 @@ each retrieval stage earns its place; a fast gate for every milestone and a full
 | analytics | 20 | Hand-written question + verified SQL (not copies of the 14 verified queries) | analytics.jsonl |
 | policy_clauses | 50 | 10 products × sections 2, 4, 5, 9, 10, with paraphrases; gold answer + gold label; includes EVAL001–005 | policy_clauses.jsonl, seed_rag.jsonl |
 | comparisons | 10 | Gold from the reviewed coverage matrix | comparisons.jsonl |
-| claim_analysis | 25 | Curated claims with hand-checked rule labels; CA001–CA003 committed | claim_analysis_seed.jsonl + claim_analysis.jsonl |
+| claim_analysis | 25 | Curated claims with hand-checked rule labels; CA001–CA003 committed; CA004–CA010 drafted 2026-10-06 (10 under the 3-day scope), labels derived by `python -m insurai.eval.claim_labels` independently of the engine, tagged `draft` until signed off in claim_analysis_checklist.md | claim_analysis_seed.jsonl + claim_analysis.jsonl |
 | multi_turn | 10 | Scripted 2–3 turn conversations (follow-ups, clarifications, multi-intent) | multi_turn.jsonl |
 | adversarial | 25 | Injection, other customer's data, guarantee requests, invented clauses, unknown IDs, out of scope, PII in prompt | adversarial.jsonl |
 
@@ -40,7 +40,9 @@ Unanswerable probes (10, inside policy_clauses with `tags: [unanswerable]`) tune
 | false_refusal | non-adversarial items refused |
 | orphan_numbers | answers failing V3 |
 | blocker_mention | claim_analysis: share of `labels.must_mention` phrases present (case-insensitive) |
-| invented_findings | claim_analysis: judge-counted findings not in the assessment |
+| invented_findings | claim_analysis: judge-counted findings not in the assessment (judge_invented_findings.md); gated as `invented_findings_free` = share of narratives with none (target 1.0, i.e. invented_findings = 0) |
+| review_interrupt | claim_analysis: the dossier paused exactly when the item's mode is assess (spec 06 rule 8), the claim needs review and the persona is not a customer |
+| rule_status_exact, docs_exact, consistency_exact | claim_analysis, deterministic: rule statuses, missing and pending documents, consistency flags against `labels` |
 | latency_p50/p95, tokens | from traces |
 
 ## Targets (gate) — same as spec 00

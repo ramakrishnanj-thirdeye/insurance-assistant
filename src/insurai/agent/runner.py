@@ -8,7 +8,7 @@ events the API maps to SSE (spec 09): ("node", {name, status, ms, ...}), ("tool_
 
 import time
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
@@ -18,6 +18,7 @@ from langgraph.types import Command, StateSnapshot
 
 from insurai.agent.progress import DraftGate, plan_summary
 from insurai.agent.schemas import Plan, TraceEvent, TurnResult
+from insurai.agent.synthesize import narrative_is_answer
 from insurai.guardrails.verify import labels_in
 from insurai.rules.schemas import ReviewDecision
 from insurai.tools.schemas import Persona
@@ -114,27 +115,62 @@ async def astream_resume(
 
 STREAM_MODES = ["tasks", "updates", "messages", "custom"]
 TOKEN_NODE = "synthesize"
+DOSSIER_NODE = "claim_dossier"
+NARRATE_NODE = "narrate"  # inside claim_dossier; its tokens are the answer on claim-analysis turns (spec 06)
+
+
+async def _plan(graph: CompiledStateGraph, thread_id: str) -> Plan | None:
+    """The turn's plan from the checkpoint (a resumed review streams without the planner)."""
+    plan = (await graph.aget_state(_config(thread_id, None))).values.get("plan")
+    return plan if isinstance(plan, Plan) else None
 
 
 async def _astream(
     graph: CompiledStateGraph, thread_id: str, payload: Any, callbacks: list[BaseCallbackHandler] | None
 ) -> AsyncIterator[RunEvent]:
-    """Node start/end from `tasks`, tool calls from the workers' trace events in `updates`, synthesize tokens
-    from `messages` (through the draft gate), tool starts from `custom`."""
+    """Node start/end from `tasks`, tool calls from the workers' trace events in `updates`, tool starts from
+    `custom`, and answer tokens from `messages` through a draft gate per attempt: synthesize's, or the
+    dossier's narrate node when the narrative is the answer (one attempt counter for both)."""
     started: dict[str, float] = {}
     attempt = 0
     gate: DraftGate | None = None
+    narrative_gate: DraftGate | None = None
+    plan: Plan | None = None
+    narrative_streams: bool | None = None  # decided at the first narrate token, from the turn's plan
     config = _config(thread_id, callbacks)
-    async for mode, data in graph.astream(payload, config, stream_mode=STREAM_MODES):
+    # subgraphs=True: the dossier's LLM tokens only stream with it. Node, tool and update events are still
+    # taken from the root namespace only, so clients see the same node sequence as before.
+    async for part in graph.astream(payload, config, stream_mode=STREAM_MODES, subgraphs=True):  # type: ignore[arg-type]
+        ns, mode, data = cast(tuple[tuple[str, ...], str, Any], part)
+        in_dossier = bool(ns) and str(ns[0]).startswith(DOSSIER_NODE + ":")
         if mode == "messages":
             chunk, meta = data
-            ours = meta.get("langgraph_node") == TOKEN_NODE and isinstance(chunk, AIMessageChunk)
-            if gate is not None and ours:
+            if not isinstance(chunk, AIMessageChunk):
+                continue
+            node = meta.get("langgraph_node")
+            if node == TOKEN_NODE and not ns and gate is not None:
                 for item in gate.feed(chunk.text):
                     yield item
+            elif node == NARRATE_NODE and in_dossier:
+                if narrative_streams is None:
+                    plan = plan or await _plan(graph, thread_id)
+                    narrative_streams = narrative_is_answer(plan)
+                if not narrative_streams:
+                    continue
+                if narrative_gate is None:
+                    attempt += 1
+                    narrative_gate = DraftGate(attempt)
+                for item in narrative_gate.feed(chunk.text):
+                    yield item
+            elif narrative_gate is not None and in_dossier:  # the next dossier node's LLM call
+                for item in narrative_gate.close():
+                    yield item
+                narrative_gate = None
         elif mode == "custom":
             if isinstance(data, dict) and data.get("event") == "tool_start":
                 yield "tool_start", {"name": data.get("name"), "args_redacted": data.get("args_redacted", {})}
+        elif ns:
+            continue  # subgraph tasks and updates: the root reports the dossier as one node
         elif mode == "tasks":
             if "result" not in data:
                 started[data["id"]] = time.perf_counter()
@@ -147,6 +183,13 @@ async def _astream(
                 for item in gate.close():
                     yield item
                 gate = None
+            if data["name"] == DOSSIER_NODE and narrative_gate is not None:
+                for item in narrative_gate.close():
+                    yield item
+                narrative_gate = None
+            if data["name"] == "planner" and isinstance(data.get("result"), dict):
+                found = data["result"].get("plan")
+                plan = found if isinstance(found, Plan) else plan
             ms = round((time.perf_counter() - started.pop(data["id"], time.perf_counter())) * 1000, 1)
             end = {"name": data["name"], "status": "end", "ms": ms, "interrupted": bool(data["interrupts"])}
             yield "node", {**end, **node_extras(data["name"], data.get("result"))}

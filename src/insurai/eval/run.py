@@ -1,5 +1,5 @@
 """Eval runner (spec 11). Slices so far: policy_clauses (retrieval), sql_facts (tools), routing (planner,
-spec 06) and e2e_sql_facts (full graph, reported only).
+spec 06), e2e_sql_facts (full graph, reported only) and claim_analysis (rules engine and dossier, spec 07).
 
 `--suite fast` runs every slice built so far; `--gate` fails when a metric is below its target in settings
 `eval.targets`. `--sample N` runs a seeded N-item subset of the routing slice (development smoke).
@@ -10,7 +10,7 @@ import argparse
 from collections.abc import Callable
 from typing import Any
 
-from insurai.eval import e2e_sql_facts, routing, sql_facts
+from insurai.eval import claim_analysis, e2e_sql_facts, routing, sql_facts
 from insurai.eval.retrieval import CONFIGS, SLICE, load_policy_slice, run_ablation, run_config, write_report
 from insurai.observability import get_logger
 from insurai.retrieval import search
@@ -23,6 +23,7 @@ SLICES: dict[str, Callable[..., dict[str, Any]]] = {
     sql_facts.SLICE: sql_facts.run_slice,
     routing.SLICE: routing.run_slice,
     e2e_sql_facts.SLICE: e2e_sql_facts.run_slice,
+    claim_analysis.SLICE: claim_analysis.run_slice,
 }
 
 

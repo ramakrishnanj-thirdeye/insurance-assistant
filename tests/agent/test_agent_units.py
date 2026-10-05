@@ -261,3 +261,79 @@ def test_policy_details_without_policy_but_with_product_becomes_policy_question(
     assert [(i.type, i.entities.product) for i in final.intents] == [("policy_question", "Family Care Gold")]
     no_product = finalize_plan(plan_of(("policy_details", {})), _ctx())
     assert no_product.clarification == "Which policy do you mean? Give the policy ID (like POL100001)."
+
+
+# --- claim analysis: explain vs assess, narrative as the answer (specs 06, 07) ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("message", "mode"),
+    [("Analyze claim CLM300210", "assess"), ("Why is CLM300210 pending?", "explain")],
+)
+def test_finalize_plan_sets_mode_and_question_on_claim_analysis(message: str, mode: str) -> None:
+    plan = plan_of(
+        ("claim_analysis", {"claim_id": "CLM300210"}), ("claim_documents", {"claim_id": "CLM300210"})
+    )
+    final = finalize_plan(plan, _ctx(message=message))
+    analysis, docs = final.intents
+    assert (analysis.mode, analysis.question) == (mode, message)
+    assert (docs.mode, docs.question) == (None, None)
+
+
+def test_planner_schema_hides_mode_and_question() -> None:
+    properties = Plan.model_json_schema()["$defs"]["Intent"]["properties"]
+    assert "mode" not in properties and "question" not in properties
+
+
+def test_narrative_is_answer_only_for_claim_analysis_turns() -> None:
+    from insurai.agent.synthesize import narrative_is_answer
+
+    same = plan_of(
+        ("claim_analysis", {"claim_id": "CLM300210"}), ("claim_documents", {"claim_id": "CLM300210"})
+    )
+    other_claim = plan_of(
+        ("claim_analysis", {"claim_id": "CLM300210"}), ("claim_status", {"claim_id": "CLM300500"})
+    )
+    mixed = plan_of(
+        ("claim_analysis", {"claim_id": "CLM300210"}), ("policy_question", {"product": "Health Secure Plus"})
+    )
+    assert narrative_is_answer(plan_of(("claim_analysis", {"claim_id": "CLM300210"})))
+    assert narrative_is_answer(same)
+    assert not narrative_is_answer(other_claim) and not narrative_is_answer(mixed)
+    assert not narrative_is_answer(
+        plan_of(("claim_status", {"claim_id": "CLM300210"}))
+    ) and not narrative_is_answer(None)
+
+
+# --- verify: the M4 root cause and the dossier narrative --------------------------------------------------
+
+
+def test_evidence_block_ids_are_not_cited_v1_flags_them() -> None:
+    """M4 manual test: the generator cited [e2] (an evidence block id) instead of the source label, so the
+    post-override answer failed V2 twice. Blocks carry no ids now, and V1 names such pseudo-labels."""
+    from insurai.agent.synthesize import evidence_blocks
+
+    evidence = [_ev("[claims:CLM300210]")]
+    assert 'id="e' not in evidence_blocks(evidence)
+    report = verify(
+        AnswerDraft(answer_markdown="Claim CLM300210 is Approved [e1]."), evidence, "claims_agent", "q"
+    )
+    v1 = next(c for c in report.checks if c.check == "V1")
+    assert not v1.passed and "[e1]" in v1.detail and "not citations" in report.feedback
+
+
+def test_model_written_narrative_is_not_a_number_source() -> None:
+    ev = _ev("[claims:CLM300210]").model_copy(update={"payload": {"narrative": "Payable ₹12,34,567."}})
+    report = verify(
+        AnswerDraft(answer_markdown="Payable ₹12,34,567. [claims:CLM300210]"), [ev], "claims_agent", "q"
+    )
+    assert report.orphan_numbers == ["1234567"]
+
+
+def test_rewrite_guarantees_keeps_lines_and_lists() -> None:
+    from insurai.guardrails.verify import rewrite_guarantees
+
+    text = "Position line.\n- This claim will definitely be approved. Other point.\n- Second item."
+    out = rewrite_guarantees(text)
+    assert out.split("\n")[0] == "Position line." and out.count("\n") == 2
+    assert "definitely" not in out and "Final decision depends on complete claim assessment." in out

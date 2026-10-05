@@ -26,7 +26,7 @@ log = get_logger(__name__)
 
 SLICE = "routing"
 DATASETS = ROOT / "eval" / "datasets"
-SOURCES = ("sql_facts", "policy_clauses", "seed_rag", "claim_analysis_seed", "multi_turn")
+SOURCES = ("sql_facts", "policy_clauses", "seed_rag", "claim_analysis_seed", "claim_analysis", "multi_turn")
 SEED = 42
 
 

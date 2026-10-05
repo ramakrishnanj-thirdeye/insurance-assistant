@@ -22,6 +22,10 @@ All slices are JSONL, one item per line, one shared schema (spec 11):
 Files committed now:
 - `seed_rag.jsonl` — the 5 BRD seed questions, with the broken `0,1,2,3,4` header fixed and gold section labels added.
 - `claim_analysis_seed.jsonl` — CLM300210, CLM300500, CLM300101 with hand-checked rule outcomes (CA001–CA003).
+- `claim_analysis.jsonl` — CA004–CA010, one claim per pattern (cancelled policy, schedule wait, maternity wait,
+  maternity paid where excluded, rejected document, fraud escalation, a control). Labels are derived by
+  `python -m insurai.eval.claim_labels` in plain Python from silver.* and ref.*, independently of the rules engine;
+  items stay tagged `draft` until signed off in `claim_analysis_checklist.md`.
 
 Files generated or written during M7 (spec 11): `sql_facts.jsonl` (generator, seed 42), `analytics.jsonl`,
 `policy_clauses.jsonl`, `comparisons.jsonl`, `multi_turn.jsonl`, `adversarial.jsonl`, `judge_calibration.jsonl`.

@@ -101,12 +101,23 @@ def test_dossier_customer_view_and_other_customer_403(client: TestClient) -> Non
     assert other.status_code == 403 and other.json()["code"] == "ACCESS_DENIED"
 
 
-def test_dossier_unknown_claim_404_narrate_501_and_query_mismatch_400(client: TestClient) -> None:
+def test_dossier_unknown_claim_404_and_query_mismatch_400(client: TestClient) -> None:
     assert client.get("/claims/CLM999999/dossier", headers=AGENT).json()["code"] == "NOT_FOUND"
-    narrate = client.get("/claims/CLM300210/dossier", params={"narrate": True}, headers=AGENT)
-    assert narrate.status_code == 501 and narrate.json()["code"] == "NOT_IMPLEMENTED"
     mismatch = client.get("/claims/CLM300210/dossier", params={"persona": "supervisor"}, headers=AGENT)
     assert mismatch.status_code == 400 and mismatch.json()["code"] == "IDENTITY_MISMATCH"
+
+
+def test_dossier_narrate_true_returns_narrative_and_customer_draft(client: TestClient) -> None:
+    """Spec 07 narrative on the API path (scripted LLM): no interrupt, every blocker in the narrative."""
+    body = client.get("/claims/CLM300210/dossier", params={"narrate": True}, headers=AGENT).json()
+    assert body["review"] is None and body["narrative"]
+    for rule in body["rules"]:
+        if rule["status"] == "fail" and rule["severity"] == "blocker":
+            assert rule["message"] in body["narrative"]
+    assert body["customer_message_draft"] and "CLM300210" in body["customer_message_draft"]
+    clause_labels = {c["chunk"]["citation_label"] for c in body["clauses"]}
+    assert "[All products §8 Reimbursement Process]" in clause_labels
+    assert clause_labels <= {s["label"] for s in body["sources"]}
 
 
 def test_coverage_matrix_cells_and_unknown_product_404(client: TestClient) -> None:

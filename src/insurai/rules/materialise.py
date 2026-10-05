@@ -1,17 +1,29 @@
-"""`make rules`: materialise gold.rule_results (spec 07).
+"""`make rules`: materialise gold.rule_results from config/rules.yaml and log the portfolio counts (spec 07).
 
-Placeholder until spec 07 lands in M5 (see tasks.md) so that `make data`, which calls `make rules`, succeeds.
+Run after `make data` (which calls it). Stop `make api`, `make mcp` and `make ui` first: Windows cannot write
+a DuckDB file another process holds open.
 """
 
+import json
 import sys
 
+from insurai import db
 from insurai.observability import get_logger
+from insurai.rules.engine import materialise_portfolio
 
 log = get_logger("rules.materialise")
 
 
 def main() -> int:
-    log.warning("rules engine not implemented yet (spec 07, M5): gold.rule_results not materialised")
+    with db.connect(read_only=False) as con:
+        report = materialise_portfolio(con)
+    log.info("gold.rule_results: %d claims in %.0f ms", report.claims, report.elapsed_ms or 0)
+    log.info("fails: %s", json.dumps(report.fail_counts))
+    log.info(
+        "consistency: %s · insights: %s",
+        json.dumps(report.consistency_counts),
+        json.dumps(report.insight_counts),
+    )
     return 0
 
 

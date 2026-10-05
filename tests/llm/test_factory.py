@@ -67,8 +67,15 @@ def test_local_profile_sets_num_ctx_reasoning_off_and_timeout(monkeypatch: pytes
         model = get_model(role)  # type: ignore[arg-type]
         assert isinstance(model, ChatOllama)
         assert model.num_ctx == 8192
-        assert model.reasoning is False
+        assert model.reasoning is (False if role != "judge" else None)  # Qwen3 thinking off; Llama has none
         assert model.client_kwargs == {"timeout": 180.0}
+
+
+def test_local_judge_is_another_model_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADR-006 amendment 2026-10-06: the judge does not share the generator's model family."""
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", "local")
+    family = {role: get_model(role).model.split(":")[0].rstrip("0123456789.") for role in ROLES}  # type: ignore[arg-type,union-attr,attr-defined]
+    assert family["judge"] != family["generator"]
 
 
 def test_local_profile_sets_seed_for_reproducible_evals(monkeypatch: pytest.MonkeyPatch) -> None:

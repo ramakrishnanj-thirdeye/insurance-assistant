@@ -22,7 +22,7 @@ llm:
                                         # seed: reproducible eval runs
       generator: {provider: ollama, model: "qwen3:8b", temperature: 0, num_ctx: 8192, reasoning: false, request_timeout_s: 180, seed: 42}
       small:     {provider: ollama, model: "qwen3:8b", temperature: 0, num_ctx: 8192, reasoning: false, request_timeout_s: 180, seed: 42}
-      judge:     {provider: ollama, model: "qwen3:14b", temperature: 0, num_ctx: 8192, reasoning: false, request_timeout_s: 180, seed: 42}
+      judge:     {provider: ollama, model: "llama3.1:8b", temperature: 0, num_ctx: 8192, request_timeout_s: 180, seed: 42}  # another model family (ADR-006); no thinking switch
     api-lite:
       generator: {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}
       small:     {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}
@@ -64,6 +64,7 @@ agent:
   history_turns: 6               # last N user+assistant turns sent to planner and synthesizer (spec 06)
   turn_timeout_s: 300            # a thread `running` longer than this is stale; a new request takes it over (spec 09)
   heartbeat_s: 2.0               # while a node runs longer than this, SSE `heartbeat` every heartbeat_s (spec 09)
+  dossier_polish_customer_message: true  # small-model polish of the dossier's customer message (spec 07); false = template only
 
 api:
   host: 127.0.0.1
@@ -100,6 +101,10 @@ eval:
     policy_clauses.recall_at_5: 0.95
     routing.intent_accuracy: 0.95
     routing.entity_exact: 0.98
+    claim_analysis.rule_status_exact: 1.0
+    claim_analysis.blocker_mention: 1.0
+    claim_analysis.review_interrupt: 1.0
+    claim_analysis.invented_findings_free: 1.0     # share of narratives with zero invented findings (judge); target invented_findings = 0
 
 logging:
   level: INFO                             # stdlib level for the `insurai` logger (insurai.observability)

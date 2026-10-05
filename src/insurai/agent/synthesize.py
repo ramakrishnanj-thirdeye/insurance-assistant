@@ -1,5 +1,6 @@
 """synthesize (spec 06): answer from evidence only. Deterministic templates when no judgment is needed
-(fast path, all-not-found, abstain); otherwise one plain-markdown generator call with synthesize.md,
+(fast path, all-not-found, abstain); the dossier narrative as is for a claim-analysis turn (it already
+streamed from the dossier's narrate node); otherwise one plain-markdown generator call with synthesize.md,
 streamed to the client (spec 09 `token`). Citations are the labels found in the text; verify checks the
 complete text after the node returns.
 """
@@ -13,7 +14,7 @@ from langchain_core.runnables import RunnableConfig
 
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
-from insurai.agent.schemas import AnswerDraft, Evidence
+from insurai.agent.schemas import AnswerDraft, Evidence, Plan
 from insurai.agent.state import AgentState
 from insurai.agent.trace import llm_events, now_ms
 from insurai.formatting import inr
@@ -54,13 +55,16 @@ def synth_messages(
 
 
 def evidence_blocks(evidence: list[Evidence]) -> str:
-    """`<evidence id=... source=...>` blocks; the payload is escaped so evidence cannot close the tag."""
+    """`<evidence source=... kind=...>` blocks; the payload is escaped so evidence cannot close the tag.
+
+    No block ids: the generator copied ids like [e2] as citations instead of the source labels (M4 manual
+    test, post-override answer failed V2 twice)."""
     blocks = []
-    for n, ev in enumerate(evidence, start=1):
+    for ev in evidence:
         labels = " ".join(s.label for s in ev.sources)
         body = html.escape(json.dumps(ev.payload, ensure_ascii=False, default=str), quote=False)
         blocks.append(
-            f'<evidence id="e{n}" source="{html.escape(labels)}" kind="{ev.kind}">\n'
+            f'<evidence source="{html.escape(labels)}" kind="{ev.kind}">\n'
             f"summary: {html.escape(ev.summary, quote=False)}\n{body}\n</evidence>"
         )
     return "\n".join(blocks)
@@ -72,9 +76,35 @@ def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDr
         return AnswerDraft(answer_markdown="\n\n".join(lines))
     if state.get("fast_path") and len(evidence) == 1 and evidence[0].kind == "ClaimView":
         return fast_path_draft(evidence[0])
+    assessment = state.get("assessment")
+    if (
+        not state.get("attempts")
+        and narrative_is_answer(state.get("plan"))
+        and assessment
+        and assessment.narrative
+    ):
+        return AnswerDraft(answer_markdown=assessment.narrative, citations=labels_in(assessment.narrative))
     if evidence and all(_unanswered_unfiltered(ev) for ev in evidence):
         return abstain_draft(evidence)  # routing rule 2: no product and no confident clause anywhere
     return None
+
+
+CLAIM_TOOL_INTENTS = frozenset({"claim_status", "claim_documents", "claim_interactions"})
+
+
+def narrative_is_answer(plan: Plan | None) -> bool:
+    """A claim-analysis turn: exactly one claim_analysis intent, and any others are claim-tool intents on the
+    same claim (the dossier covers them). Mixed turns (a policy question too) go through the generator."""
+    if plan is None or plan.clarification:
+        return False
+    analyses = [i for i in plan.intents if i.type == "claim_analysis"]
+    if len(analyses) != 1:
+        return False
+    claim_id = analyses[0].entities.claim_id
+    return all(
+        i.type == "claim_analysis" or (i.type in CLAIM_TOOL_INTENTS and i.entities.claim_id == claim_id)
+        for i in plan.intents
+    )
 
 
 def _unanswered_unfiltered(ev: Evidence) -> bool:

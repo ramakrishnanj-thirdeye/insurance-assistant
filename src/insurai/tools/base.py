@@ -4,9 +4,12 @@ import functools
 import inspect
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
+import duckdb
 from pydantic import BaseModel
 
 from insurai import db
@@ -58,9 +61,28 @@ def redact_args(args: dict[str, Any]) -> dict[str, Any]:
     return {k: (REDACTED if k in PII_ARGS and v is not None else v) for k, v in args.items()}
 
 
-def fetch_all(sql: str, params: list[Any]) -> list[dict[str, Any]]:
-    """Rows as dicts from a parameterised query on a read-only connection."""
+_SHARED: ContextVar[duckdb.DuckDBPyConnection | None] = ContextVar("insurai_shared_connection", default=None)
+
+
+@contextmanager
+def one_connection() -> Iterator[duckdb.DuckDBPyConnection]:
+    """One read-only connection for every fetch in this scope (a sequential burst of tool queries, such as
+    evaluate_claim). Single-threaded only: DuckDB connections are not shared across threads."""
+    shared = _SHARED.get()
+    if shared is not None:
+        yield shared
+        return
     with db.connect(read_only=True) as con:
+        token = _SHARED.set(con)
+        try:
+            yield con
+        finally:
+            _SHARED.reset(token)
+
+
+def fetch_all(sql: str, params: list[Any]) -> list[dict[str, Any]]:
+    """Rows as dicts from a parameterised query on a read-only connection (shared inside one_connection)."""
+    with one_connection() as con:
         cur = con.execute(sql, params)
         columns = [d[0] for d in cur.description]
         return [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]

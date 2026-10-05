@@ -24,10 +24,17 @@ class ClaimAssessment(BaseModel):
     clauses: list[RetrievedChunk]; narrative: str | None; customer_message_draft: str | None
     review: ReviewDecision | None; sources: list[SourceRef]
 def load_rules(path: Path, con) -> list[RuleDef]: ...        # validates every expression against gold.claim_facts columns
-def compile_rules(rules, thresholds) -> str: ...            # one SELECT producing <id> status columns
-def evaluate_claim(claim_id: str, persona: Persona) -> ClaimAssessment: ...   # no LLM
+def compile_rules(rules, thresholds, *, consistency=(), insights=()) -> str: ...  # one SELECT producing <id> status columns
+def evaluate_claim(claim_id: str, persona: Persona, *, principal_id=None, trace_id=None
+                   ) -> ClaimAssessment | NotFound | AccessDenied: ...   # no LLM
 def materialise_portfolio(con) -> PortfolioReport: ...      # gold.rule_results (make rules)
 ```
+Implementation notes (2026-10-06): `RuleDef` also takes `message_if: list[{when, message}]` (first match wins,
+like `severity_if`). `evaluate_claim` takes the principal as a keyword (ownership is checked by the claim tools)
+and returns NotFound or AccessDenied like every tool. `compile_rules` takes the consistency flags and portfolio
+insights (P1) as keywords. `PortfolioReport` (rules/schemas.py): as_of, claims, fail_counts, review_counts,
+consistency_counts, insight_counts, by_product, elapsed_ms. The dossier pipeline without the graph is
+`insurai.agent.dossier.analyze(ctx, claim_id, narrate, question)` (analyze_claim tool, GET /claims/{id}/dossier).
 
 ## Behaviour
 1. Status per rule: not_applicable if NOT applies_if; pass if pass_if; review if review_if; else fail. NULL → false. `{fraud_review_score}`-style placeholders come from settings.thresholds.
@@ -48,16 +55,27 @@ def materialise_portfolio(con) -> PortfolioReport: ...      # gold.rule_results 
    customer_message_draft (template + LLM polish, no-guarantee check).
 10. `make rules` materialises gold.rule_results (claim_id, status per rule, consistency flags) for the audit and analytics.
 
+Additions decided 2026-10-06:
+11. Messages read as plain language: config `formats` (rupee columns, labels for raw codes) and per-status
+    `message_if` variants (R05 per coverage status, R01 before the policy started, R07 pending only, R09 when the
+    deductible or co-pay is zero, R12 by flag); no rendered message contains a snake_case token.
+12. Next best actions live in config (`next_best_actions`, each with a plain-language `customer_text`).
+13. False premise: status words in the question (`dossier.status_words`) that contradict the claim's status produce a
+    cited correction that opens the narrative ("CLM300210 is Approved, not pending [claims:CLM300210].").
+14. Completeness guard: after the narrative, any fail or review finding whose message is missing, and any missing
+    next best action, is appended verbatim with its citation; the correction is moved to the front.
+15. Every citation label in the assessment is in the dossier evidence's sources (V1), including clause labels.
+
 ## Acceptance criteria
-- [ ] AC-07-01 `load_rules` rejects an expression that references an unknown column, with the rule ID in the error.
-- [ ] AC-07-02 Rule statuses, missing and pending document lists for CA001–CA003 (eval/datasets/claim_analysis_seed.jsonl) match exactly.
-- [ ] AC-07-03 Portfolio fail counts at as-of 2026-10-01 (regression fixture): R01 98,375 · R02 3,589 · R03 16,346 · R04 4,798 · R05 2,753 · R06 107,729 · R07 13,942 · R08 17,992 · R09 35,124 · R10 1,164 · R11 6,000 · R12 28,279.
-- [ ] AC-07-04 Consistency counts: C1 59,627 · C2 514 · C3 241 · C4 1,412; maternity claims paid on products whose wording excludes maternity: 1,390.
-- [ ] AC-07-05 Every rendered message for the three demo claims has no `{` characters and uses ₹ grouping.
-- [ ] AC-07-06 Customer view of CLM300210 (principal CUST139920) contains no R10/R12 results, no fraud score, no consistency flags.
-- [ ] AC-07-07 Narrative for CA001–CA003 mentions every blocker (deterministic check on `labels.must_mention`) and the judge finds zero invented findings.
-- [ ] AC-07-08 `evaluate_claim` < 300 ms; `make rules` < 30 s.
-- [ ] AC-07-09 Changing `thresholds.fraud_review_score` in settings changes R10 counts without code changes.
+- [x] AC-07-01 `load_rules` rejects an expression that references an unknown column, with the rule ID in the error.
+- [x] AC-07-02 Rule statuses, missing and pending document lists for CA001–CA003 (eval/datasets/claim_analysis_seed.jsonl) match exactly. Also CA004–CA010 (draft, labels derived independently by `insurai.eval.claim_labels`), and the two implementations agree on all 120,000 claims.
+- [x] AC-07-03 Portfolio fail counts at as-of 2026-10-01 (regression fixture): R01 98,375 · R02 3,589 · R03 16,346 · R04 4,798 · R05 2,753 · R06 107,729 · R07 13,942 · R08 17,992 · R09 35,124 · R10 1,164 · R11 6,000 · R12 28,279.
+- [x] AC-07-04 Consistency counts: C1 59,627 · C2 514 · C3 241 · C4 1,412; maternity claims paid on products whose wording excludes maternity: 1,390.
+- [x] AC-07-05 Every rendered message for the three demo claims has no `{` characters and uses ₹ grouping.
+- [x] AC-07-06 Customer view of CLM300210 (principal CUST139920) contains no R10/R12 results, no fraud score, no consistency flags.
+- [x] AC-07-07 Narrative for CA001–CA003 mentions every blocker (deterministic check on `labels.must_mention`) and the judge finds zero invented findings. Passed 2026-10-06 on the local profile (generator qwen3:8b, judge llama3.1:8b, ADR-006 amendment); the completeness guard makes the mention part model-independent (scripted-model tests over all 10 items); api-lite skips until an ANTHROPIC_API_KEY exists.
+- [x] AC-07-08 `evaluate_claim` < 300 ms; `make rules` < 30 s. Measured 2026-10-06: warm 80–90 ms (first call ~2.7 s while the ruleset and section names load); `make rules` 0.8 s (3.6 s with process start).
+- [x] AC-07-09 Changing `thresholds.fraud_review_score` in settings changes R10 counts without code changes.
 
 ## Eval hooks
 claim_analysis slice (25): blocker mention recall, invented findings, review-interrupt correctness.

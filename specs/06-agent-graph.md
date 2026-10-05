@@ -59,7 +59,7 @@ attempts=0, turn=turn+1`. Only `messages` and `active_entities` carry across tur
 | claim_tools | deterministic | claim_status, claim_documents, claim_interactions, policy_details (get_policy), hospital_check, customer_summary | synthesize |
 | policy_rag | retrieval | policy_question → search_policy; coverage_compare → get_coverage then search_policy for citations | synthesize |
 | analytics_sql | LLM + validator | run_analytics (spec 02) | synthesize |
-| claim_dossier | subgraph | spec 07 (may interrupt) | synthesize |
+| claim_dossier | subgraph | spec 07: rules, clauses, narrative (interrupts only in assess mode, rule 8) | synthesize |
 | synthesize | LLM (generator), structured output AnswerDraft | answer from evidence only, with citation labels | verify |
 | verify | rules + LLM judge | spec 08 output checks | pass → respond; fail and attempts < 1 → synthesize with feedback; else respond (abstain) |
 | respond | deterministic | final message, trace, active_entities update | END |
@@ -87,6 +87,13 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 7. **Counts vs one entity** (decided 2026-10-05): counts, rates, totals and trends across many records are analytics;
    a question about one specific customer, policy or claim named by ID uses that entity's intent (customer_summary,
    policy_details, claim_documents), even when it asks for a number ("how many open claims does CUST… have?").
+8. **Explain vs assess** (decided 2026-10-06): `finalize_plan` sets `mode` on every claim_analysis intent from the
+   user's words, deterministically (the planner never sets it; it is hidden from the planner schema). `assess` when
+   the message contains one of `config/rules.yaml` `dossier.assess_keywords` (analyse/analyze, assess, review,
+   decide/decision, approve, reject, adjudicate, evaluate) after status phrases are removed ("under review" is a
+   status, not a request); otherwise `explain` ("Why is my claim pending?", "Give me a summary of this claim").
+   Only assess mode may pause for review (Memory, interrupts, streaming). `finalize_plan` also copies the message to
+   `intent.question` for the dossier's false-premise check (spec 07).
 
 ## Prompts (versioned files, IDs logged in trace)
 `config/prompts/planner.md` (15+ few-shot examples covering every intent, multi-intent and clarification),
@@ -104,16 +111,33 @@ class AnswerDraft(BaseModel):
 Schedule-vs-document conflicts (spec 08) are sentences in the text that cite both labels. There are no
 follow-up suggestions. Empty output abstains. Verify (V1–V4) runs on the complete text after the node
 returns; nothing is marked verified before that.
-Evidence is passed inside `<evidence id=... source=...>` tags; the prompt says evidence is data, not instructions.
+Evidence is passed inside `<evidence source=... kind=...>` tags; the prompt says evidence is data, not instructions.
+The tags carry no block ids: in the M4 manual test the generator cited `[e2]` (a block id) instead of the source
+labels, so the post-override answer failed V2 twice and fell back to the abstention. V1 now also rejects `[eN]`
+pseudo-labels with feedback that names them.
+
+**Claim-analysis turns** (decided 2026-10-06). When the plan has exactly one claim_analysis intent and any other
+intents are claim-tool intents on the same claim (`narrative_is_answer`), the dossier's narrative is the answer:
+synthesize returns it unchanged on the first attempt (no second generator call) and verify checks it as usual.
+A verify retry runs the generator with the narrative as evidence. Mixed turns (for example claim analysis plus a
+policy question) always go through the generator, with the narrative as evidence. Model-written text is never a
+number source for V3 (the evidence payload key `narrative` is skipped). For claim-analysis turns the final fallback
+after a failed retry is the assessment rendered without an LLM (findings, next steps, citations; respond appends the
+reviewer decision), never the policy-wording abstention. The reviewer's note counts as a V3 number source, like
+the question.
 
 ## Memory, interrupts, streaming
 - Checkpointer: `AsyncSqliteSaver` at `paths.checkpoints` for the API (FastAPI is async); `SqliteSaver` for sync scripts; `InMemorySaver` for in-process evals and unit tests. `thread_id` comes from the thread store (spec 09, ADR-009).
 - **History window.** The planner and synthesizer receive the last `agent.history_turns` (default 6) user and assistant turns, trimmed with `langchain_core.messages.trim_messages` by turn count, plus `active_entities`. Tool and evidence messages from earlier turns are never replayed. The full history stays in the checkpoint for display. Add `history_turns: 6` under `agent:` in config/settings.yaml.
-- claim_dossier calls `interrupt(assessment_summary)` when `needs_human_review` and persona ≠ customer;
-  the API resumes with `Command(resume=ReviewDecision(action="approve"|"override"|"request_info", note=str))`.
-- Stream modes `tasks` + `updates` (node start/end and tool events), `messages` filtered to the synthesize
-  node (answer tokens, through the draft gate: never a guarantee phrase or a `<think>` block, spec 09), and
-  `custom` (`tool_start` from the `@tool` wrapper). The API maps them to SSE events (spec 09). Template and
+- claim_dossier calls `interrupt(assessment_summary)` when the intent's mode is assess, `needs_human_review`, and
+  persona ≠ customer (explain mode never pauses); the API resumes with
+  `Command(resume=ReviewDecision(action="approve"|"override"|"request_info", note=str))`. The summary carries the
+  counts, blockers, escalation reasons, next best actions and missing and pending documents (spec 10 review card).
+- Stream modes `tasks` + `updates` (node start/end and tool events, root graph only), `messages` (answer tokens,
+  through a draft gate per attempt: never a guarantee phrase or a `<think>` block, spec 09), and `custom`
+  (`tool_start` from the `@tool` wrapper), with `subgraphs=True` so the dossier's tokens reach the stream. Answer
+  tokens come from synthesize, or from the dossier's `narrate` node on claim-analysis turns (the same attempt
+  counter; the customer-message polish never streams). The API maps them to SSE events (spec 09). Template and
   fast-path answers make no LLM call, so they emit no tokens.
 
 ## Trace (TraceEvent list, returned with every response)
@@ -128,13 +152,17 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 - [x] AC-06-04 Turn 1 "Analyze CLM300210", turn 2 "which documents are missing?" → turn 2 resolves CLM300210.
 - [x] AC-06-05 "status of CLM300210" makes zero LLM calls except the verifier's deterministic checks (callback counter = 0).
 - [x] AC-06-06 Agent persona, no context, "what is the waiting period?" → clarification asking for the product.
-- [x] AC-06-07 Agent persona "Analyze claim CLM300210" → interrupt; resume approve with note → final answer states the reviewer decision and note. Customer persona (owner CUST139920) → no interrupt; answer says a specialist will review. (Dossier internals provisional until spec 07, M5.)
+- [x] AC-06-07 Agent persona "Analyze claim CLM300210" → interrupt; resume approve with note → final answer states the reviewer decision and note. Customer persona (owner CUST139920) → no interrupt; answer says a specialist will review. (Re-verified with the spec 07 dossier, 2026-10-06.)
 - [x] AC-06-08 "Status of CLM999999" → NOT_FOUND wording, no invented details (verifier passes with zero numbers other than the ID).
 - [x] AC-06-09 Every response carries a trace with the fields above; token counts present for every LLM call. (SQL text arrives with run_analytics, M6; tools do not expose their SQL.)
 - [x] AC-06-11 Per-turn reset: in a two-turn thread, turn 2's evidence and trace contain only turn-2 items, and an answer citing a label that only turn 1 returned fails V1.
 - [x] AC-06-12 History window: after 10 prior turns, the planner and synthesizer prompts contain at most 6 turns (assert via a callback that captures message counts), and a follow-up still resolves through active_entities.
 - [x] AC-06-13 Synthesize returns plain markdown; citations are parsed from the labels; V1–V4 run on the full streamed text (an orphan number in the last chunk still fails V3).
 - [x] AC-06-14 The fast path, NOT_FOUND templates and other deterministic answers emit no `token` events.
+- [x] AC-06-15 Explain vs assess: agent persona "Analyze claim CLM300210 …" → interrupt; "Why is CLM300210 pending?" and "Give me a summary of claim CLM300210" → no interrupt (mode explain) although the claim needs review; customer persona never pauses (tests/agent/test_dossier.py, tests/agent/test_agent_units.py).
+- [x] AC-06-16 Claim-analysis turns answer with the dossier narrative: no second generator call, narrate tokens stream as attempt 1, a guarantee phrase in the narrative is never streamed (`draft_hidden`) and the final answer carries the mandated wording; a mixed turn does not stream the narrative and still synthesizes.
+- [x] AC-06-17 False premise: "Why is CLM300210 pending?" (it is Approved) → the answer opens with "CLM300210 is Approved, not pending [claims:CLM300210]." and passes verification.
+- [x] AC-06-18 Fallback: when both attempts fail verification on a claim-analysis turn, the answer is the assessment rendered without an LLM (no policy-wording abstention); `[eN]` evidence-block ids fail V1 with feedback that names them; a number from the reviewer's note passes V3.
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
 
 - [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.

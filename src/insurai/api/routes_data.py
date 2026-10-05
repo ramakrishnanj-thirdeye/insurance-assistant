@@ -8,7 +8,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 
 from insurai import db
-from insurai.agent.dossier import assess_claim
 from insurai.agent.prompts import PROMPTS_DIR, load_prompt
 from insurai.api.identity import Identity, ensure_matches, identity
 from insurai.api.problems import ApiError
@@ -118,9 +117,9 @@ def claim_dossier(
     principal_id: Annotated[str | None, Query()] = None,
 ) -> ClaimAssessment:
     ensure_matches(ident, persona, principal_id)
-    if narrate:
-        raise ApiError(501, "NOT_IMPLEMENTED", "narrate=true needs the spec 07 narrative (M5).")
-    result = assess_claim(_ctx(ident, f"api-dossier-{claim_id}"), claim_id)
+    result = TOOLS["analyze_claim"](
+        _ctx(ident, f"api-dossier-{claim_id}"), claim_id=claim_id, narrate=narrate
+    )
     _raise_for(result)
     return result  # type: ignore[return-value]
 

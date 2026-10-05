@@ -3,6 +3,7 @@
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from insurai.tools.schemas import SourceRef
 
@@ -47,6 +48,11 @@ class Intent(BaseModel):
     type: IntentType
     entities: Entities = Field(default_factory=Entities)
     sub_question: str
+    # Set by finalize_plan, never by the planner (hidden from its schema). claim_analysis only: "assess"
+    # may pause for human review, "explain" never does (spec 06); `question` is the user's message, which
+    # the dossier checks for a false premise (spec 07).
+    mode: SkipJsonSchema[Literal["assess", "explain"] | None] = None
+    question: SkipJsonSchema[str | None] = None
 
 
 class Plan(BaseModel):

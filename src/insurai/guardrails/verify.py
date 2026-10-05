@@ -16,12 +16,15 @@ from insurai.tools.schemas import Persona
 from insurai.tools.sources import label_regexes
 
 NO_RESULT_KINDS = frozenset({"not_found", "access_denied", "unavailable"})
+# Payload keys with LLM-written text (the dossier narrative): shown to the synthesizer, never a number source.
+MODEL_WRITTEN_KEYS = frozenset({"narrative"})
 
 # Order matters: dates and IDs first so their digits are not read again as bare numbers.
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _ID = re.compile(r"\b(?:CLM|POL|CUST|HOSP)\d+\b")
 _NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 _LIST_MARKER = re.compile(r"^\s*\d+[.)]\s+", re.MULTILINE)
+_PSEUDO_LABEL = re.compile(r"\[e\d+\]")  # an evidence-block number copied as a citation (M4 root cause)
 
 
 def number_tokens(text: str) -> set[str]:
@@ -52,7 +55,8 @@ def evidence_tokens(evidence: list[Evidence]) -> set[str]:
     """Every number in evidence payloads, summaries and labels, plus list lengths (counts are evidence)."""
     tokens: set[str] = set()
     for ev in evidence:
-        tokens |= number_tokens(json.dumps(ev.payload, default=str, ensure_ascii=False))
+        payload = {k: v for k, v in ev.payload.items() if k not in MODEL_WRITTEN_KEYS}
+        tokens |= number_tokens(json.dumps(payload, default=str, ensure_ascii=False))
         tokens |= number_tokens(ev.summary)
         tokens |= {str(n) for n in _list_lengths(ev.payload)}
         for ref in ev.sources:
@@ -89,16 +93,24 @@ def guarantee_hits(text: str) -> list[str]:
 
 
 def rewrite_guarantees(text: str) -> str:
-    """Replace every sentence that makes a guarantee with the mandated wording (once)."""
+    """Replace every sentence that makes a guarantee with the mandated wording (once per answer). Lines are
+    kept, so markdown lists and paragraphs keep their shape."""
     mandated = guardrails()["no_guarantee"]["mandated_wording"]
-    out: list[str] = []
-    for sentence in re.split(r"(?<=[.!?])\s+", text):
-        if guarantee_hits(sentence):
-            if mandated not in out:
+    used = False
+    lines: list[str] = []
+    for line in text.split("\n"):
+        if not guarantee_hits(line):
+            lines.append(line)
+            continue
+        out: list[str] = []
+        for sentence in re.split(r"(?<=[.!?])\s+", line):
+            if not guarantee_hits(sentence):
+                out.append(sentence)
+            elif not used:
                 out.append(mandated)
-        else:
-            out.append(sentence)
-    return " ".join(out)
+                used = True
+        lines.append(" ".join(out))
+    return "\n".join(lines)
 
 
 def verify(
@@ -107,7 +119,9 @@ def verify(
     answer = draft.answer_markdown
     allowed_labels = {ref.label for ev in evidence for ref in ev.sources}
     used = labels_in(answer)
+    pseudo = list(dict.fromkeys(_PSEUDO_LABEL.findall(answer)))
     invalid = [label for label in dict.fromkeys(used + draft.citations) if label not in allowed_labels]
+    invalid += pseudo
 
     has_results = any(ev.kind not in NO_RESULT_KINDS for ev in evidence)
     v2_ok = not has_results or bool(used)
@@ -126,6 +140,11 @@ def verify(
         CheckOutcome(check="V4", passed=not hits, detail=", ".join(hits)),
     ]
     feedback = []
+    if pseudo:
+        feedback.append(
+            f"{', '.join(pseudo)} are not citations. Cite with the labels in each evidence block's source "
+            "attribute, copied exactly."
+        )
     if invalid:
         feedback.append(f"Remove or replace citation labels not in the evidence: {', '.join(invalid)}.")
     if not v2_ok:

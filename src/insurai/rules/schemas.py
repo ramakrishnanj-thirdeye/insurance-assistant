@@ -1,6 +1,4 @@
-"""Claim-judgment models (spec 07 Interfaces). Defined in M4 so the agent graph (spec 06) can carry them;
-the rules engine fills them in M5.
-"""
+"""Claim-judgment models (spec 07 Interfaces), filled by the rules engine (insurai.rules.engine)."""
 
 from datetime import date
 from typing import Any, Literal
@@ -52,3 +50,16 @@ class ClaimAssessment(BaseModel):
     customer_message_draft: str | None = None
     review: ReviewDecision | None = None
     sources: list[SourceRef]
+
+
+class PortfolioReport(BaseModel):
+    """Counts over gold.rule_results (spec 07 `make rules`, spec 09 /audit/summary)."""
+
+    as_of: date
+    claims: int
+    fail_counts: dict[str, int]  # rule id -> claims failing it
+    review_counts: dict[str, int]
+    consistency_counts: dict[str, int]  # C1..C4
+    insight_counts: dict[str, int]  # P1..
+    by_product: dict[str, dict[str, int]]  # product -> rule fails and consistency flags
+    elapsed_ms: float | None = None

@@ -30,7 +30,8 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] Tool schemas, personas enforcement, 8 of 11 tools (spec 05)
 - [x] sql_facts generator: 20 items, seed 42, gold recomputed per run (3-day scope; spec 11 says 40)
 - [x] FastMCP server (stdio + streamable HTTP), `make mcp-smoke`
-- [ ] Issue: analyze_claim and portfolio_audit tools deferred to M5 (spec 07, gold.rule_results); run_analytics to M6 (spec 02). Register them in `tools/registry.py`, then re-run AC-05-01 and `make mcp-smoke` (AC-05-08)
+- [x] analyze_claim and portfolio_audit registered (2026-10-06, spec 07): AC-05-01 tests for both (portfolio_audit supervisor-only), `make mcp-smoke` passes with 10 tools
+- [ ] Issue: run_analytics deferred to M6 (spec 02); register it, then re-run AC-05-01 and `make mcp-smoke`
 - [ ] Issue: grow sql_facts to 40 items (spec 11)
 - [x] policy_details intent added to spec 06 and planner.md v0.2.0 (decided 2026-10-04); SQL013–SQL016 route to it
 - Decision 2026-10-04: tools keep per-call read-only DuckDB connections (~15–80 ms) so `make data` can replace the warehouse on Windows without stopping services; revisit only if M7 latency needs it
@@ -44,7 +45,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] Thread store, ownership, status machine with a 300 s lease (`agent.turn_timeout_s`), startup recovery that keeps pending reviews, /chat and /chat/resume over SSE (spec 09 M4 slice, 2026-10-05)
 - [x] Chat page (spec 10 M4 slice, 2026-10-06): `ui/app.py` with persona/principal picker, streamed node and tool progress, Trace expander, review card (approve / override / request info), Conversations list; identity and open thread in the URL; UI client `insurai.api.client` (read timeout `turn_timeout_s` + 30 s). AC-10-03, AC-10-07
 - [ ] Issue: `agent.tool_transport: mcp` deferred (3-day scope); `build_graph` raises NotImplementedError for it
-- [ ] Issue: claim_dossier internals are provisional (needs_human_review from ClaimView flags); spec 07 replaces `assess` with `evaluate_claim` in M5
+- [x] claim_dossier internals replaced by the spec 07 engine (2026-10-06)
 - [ ] Issue: input guard is deterministic only (PII, injection markers, scope keywords); small-LLM injection confirmation, GUARANTEE_REQUEST path and V5–V7 land with spec 08 in M7
 - [ ] Issue: AC-06-10 api-lite smoke skips until an ANTHROPIC_API_KEY exists (local passes)
 - [ ] Issue: AC-06-02 intent below target on qwen3:8b (2026-10-05, 68 items, planner.md v0.3.0): intent 0.8971, entity 0.9853 (target met). Decided: rule 7 (counts vs one entity) fixed SQL017/SQL018; rule 2 probe abstains when nothing is confident (EVAL032); claim/policy intents without an ID but with a product become policy_question (EVAL001/012/018/022/028/030). Remaining model misses: SQL010-012 (extra claim_documents on hospital-via-claim), EVAL021 (hospital_check for cashless repairs), EVAL034 (out_of_scope), MT003 (extra claim_analysis), MT006 (only policy_question for "my waiting period"). Earlier, higher scores relied on few-shots that copied golden IDs and phrasing; now guarded by tests/agent/test_prompt_hygiene.py. Re-measure on api-lite when a key exists. Re-run 2026-10-05 after spec 09 (no planner or prompt change): intent 0.9118, entity 1.0; MT006 passed this time (model run-to-run variance)
@@ -57,11 +58,26 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - Decision 2026-10-05: the local profile sets `seed: 42` on every Ollama role so eval runs are reproducible; earlier local numbers were unseeded
 
 ## M5 Claim Dossier — spec 07
-- [ ] Rules loader/compiler, evaluate_claim, `make rules`
-- [ ] Issue: replace the M1 stub `src/insurai/rules/materialise.py` (logs a warning, exits 0 so `make data` works) with `materialise_portfolio`
-- [ ] Dossier subgraph with interrupt; next best actions; customer view
-- [ ] claim_analysis.jsonl (22 more curated claims, hand-checked)
+- [x] Rules loader/compiler, evaluate_claim, `make rules` (2026-10-06): config/rules.yaml v2 (message_if, formats, next best actions, P1 insight, explain/assess keywords, premise status words); every AC-07-03/04 count reproduced; `make rules` 0.8 s, warm evaluate_claim 80–90 ms
+- [x] `materialise_portfolio` replaced the M1 stub; gold.rule_results (claim, product, status, R01–R12, R04_severity, C1–C4, P1)
+- [x] Dossier subgraph: gather_facts (parallel) → evaluate_rules → fetch_clauses → assemble (false premise) → review (assess mode only) → narrate (completeness guard) → customer_draft; next best actions; customer view
+- [x] Spec 06 additions (2026-10-06): explain vs assess (rule 8), the narrative is the answer on claim-analysis turns (streamed as attempt 1 through the draft gate; mixed turns synthesize), deterministic claim-analysis fallback, reviewer note as a V3 source; AC-06-15 … AC-06-18
+- [x] Root cause of the M4 post-override failure (reproduced 2026-10-06 on qwen3:8b): the generator cited evidence-block ids (`[e2]`) instead of source labels, so V2 failed twice and the policy-wording abstention was shown. Fixed: no block ids, V1 names `[eN]`, deterministic claim-analysis fallback. Also found: the dossier evidence carried the narrative, so V3 accepted its own invented numbers; model-written text is no longer a number source
+- [~] claim_analysis.jsonl: 7 drafted (CA004–CA010, 10 items in total under the 3-day scope; spec 11 says 25). Labels derived by `python -m insurai.eval.claim_labels` independently of the engine; the two implementations agree on all 120,000 claims
+- [ ] Issue: sign off CA004–CA010 in eval/datasets/claim_analysis_checklist.md, then remove their `draft` tags
+- [ ] Issue: grow claim_analysis to 25 items (spec 11)
 - **Gate:** AC-07-*; blocker_mention = 1.0; invented_findings = 0
+- Recorded 2026-10-06 (`make eval-fast`, local profile, judge llama3.1:8b, ~22 min): claim_analysis 10 items: rule_status_exact, docs_exact, consistency_exact, review_interrupt, blocker_mention 1.0, invented_findings 0. M5 gate met. Other slices: policy_clauses recall@5 1.0, mrr 0.95; sql_facts 1.0; routing 75 items (the 7 new CA items included) intent 0.92, entity 1.0 (on the original 68 items 5 misses, 0.9265); e2e_sql_facts gold_in_answer 0.9474
+  - [ ] Routing follow-up: CA010 "Give me a summary of claim …" routed to claim_status, not claim_analysis (planner miss on a new draft item)
+  - [ ] e2e follow-up: SQL009 (gold: no missing documents) now scores the synthesized answer, which lists pending documents but never says none are missing; the earlier hit came from the abstain fallback, which the [eN] fix makes rare. Synthesize should state "no documents are missing" when the checklist's missing list is empty
+- Decision 2026-10-06: the local judge is llama3.1:8b (another model family, ADR-006 amendment); eval runners judge in a second phase after all answers are generated
+
+## M5.5 Deterministic routing and answers (before M6)
+- [ ] Intent pruning by trigger words: drop planner intents whose trigger words are absent from the message (e.g. an extra claim_documents on a hospital question; SQL010–SQL012, MT003)
+- [ ] Summary, overview and why questions about a claim promoted to claim_analysis in explain mode (CA010 "Give me a summary of claim …" routed to claim_status)
+- [ ] Deterministic template answers for single SQL-fact intents, with no synthesize LLM call: claim_status; claim_documents, with an explicit "no documents are missing" when the missing list is empty (SQL009); hospital_check; policy_details
+- [ ] Premise check extended to claim_status answers ("Why is CLM300210 pending?" when routed to claim_status)
+- **Gate:** routing intent_accuracy ≥ 0.95 on the local profile; e2e_sql_facts gold_in_answer 1.0; no regression in `make eval-fast`
 
 ## M6 Analytics — spec 02
 - [ ] Semantic model loader, validator, executor with timeout, repair loop, chart spec
@@ -73,20 +89,20 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] comparisons.jsonl (10), adversarial.jsonl (25), judge_calibration.jsonl (20)
 - [ ] Runner, reports, baseline, `make eval-fast` gate
 - **Gate:** AC-08-*, AC-11-*; all spec 00 targets met; baseline committed
-- [ ] Eval follow-up: false-premise adversarial items, e.g. "Why is CLM300210 pending?" (it is Approved); the agent should correct the premise from tool facts. Seen 2026-10-06 on qwen3:8b: the planner routed it to claim_analysis and paused for review instead
+- [ ] Eval follow-up: false-premise adversarial items, e.g. "Why is CLM300210 pending?" (it is Approved); the agent should correct the premise from tool facts. Seen 2026-10-06 on qwen3:8b: the planner routed it to claim_analysis and paused for review instead. Claim-analysis turns now correct it deterministically and explain without pausing (spec 07, AC-06-17); claim_status turns still rely on synthesize
 - [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair; guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)
 
 ## M8 API, UI, demo — specs 09, 10
 - [x] API with SSE and resume, /health, /coverage-matrix, /claims/{id}/dossier (narrate=false, provisional assessment), /eval/reports (spec 09, 2026-10-05)
 - [ ] Issue: AC-09-04 deferred (3-day scope): `/audit/summary` and `/audit/claims` need `portfolio_audit` (spec 07, M5)
 - [ ] Issue: AC-09-06 deferred (3-day scope): `POST /eval/run` and `--via-api` (eval threads with source=eval, deleted after the run) need the spec 11 runner (M7)
-- [ ] Issue: `/claims/{id}/dossier?narrate=true` returns 501 until the spec 07 narrative (M5). (`token` SSE events: resolved by the streaming synthesis pass, 2026-10-06)
+- [x] `/claims/{id}/dossier?narrate=true` returns clauses, narrative and the customer message draft (spec 07, 2026-10-06). (`token` SSE events: resolved by the streaming synthesis pass, 2026-10-06)
 - [x] Eval scorer (2026-10-06): `e2e_sql_facts` gold "no missing documents" now accepts a clear statement ("not missing", "no documents are missing", "nothing is missing", "all required documents are present", "missing: none") and fails any answer that also says a document is missing (negative tests in tests/eval). Note: the previous `gold_in_answer` 1.0 (2026-10-05) included a SQL009 hit from the abstain fallback's "missing: none", not from a synthesized answer; the old word list also accepted a bare "none" or "nothing" anywhere in the text
 - [ ] Routing follow-up (2026-10-06, after the streaming pass): MT006 lost policy_id POL218917 on the customer's "What is my waiting period?" (entity_exact 0.9853, same as the 2026-10-05 measurement in spec 06). routing.intent_accuracy 0.9118 is unchanged and still below the 0.95 gate
 - [x] Streaming synthesis pass (specs 06, 09, 10; 2026-10-06): plain-markdown synthesize with regex citations; `token`, `draft_hidden`, `heartbeat` and `tool_start` SSE events; never streams a promise or `<think>`; verified badge; status line from `config/ui_status.yaml` with tone; prompt hygiene over every prompt file (fixed golden-ID leaks in synthesize.md and templates.md, a golden phrase in planner.md)
 - Recorded 2026-10-05: the busy lock is in-process, so `make api` must run a single uvicorn worker; production needs a database- or Redis-level lock (spec 09 Behaviour)
 - [ ] Five Streamlit pages; Trace panel; review card (Chat page, minimal trace and review card done in M4)
-- [ ] Issue: Chat page leftovers for M8: Claim Dossier, Coverage Matrix, Leakage Radar and Eval Dashboard pages; citation chips with clause expanders; Altair charts for analytics; full AC-10-02 trace fields; blockers and next actions on the review card (need spec 07)
+- [ ] Issue: Chat page leftovers for M8: Claim Dossier, Coverage Matrix, Leakage Radar and Eval Dashboard pages; citation chips with clause expanders; Altair charts for analytics; full AC-10-02 trace fields; blockers and next actions on the review card (the interrupt summary now carries counts, blockers, escalation reasons and next best actions; the card must show them)
 - [ ] `make demo-check`; rehearse the run-of-show
 - [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3)
 - [x] Thread list, rename and delete endpoints (spec 09, 2026-10-05)
@@ -107,6 +123,8 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
   - Port 8000 cleanup if a stale API holds it: `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`, then `Stop-Process -Id <pid>` (Git Bash: `netstat -ano | findstr :8000`, then `taskkill /PID <pid> /F`)
 - [ ] Try Ollama KV-cache quantization (`OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`), then re-measure the GPU/CPU split (`ollama ps`, 36%/64% CPU/GPU on 2026-10-06) and latency (TTFT 9.4 s, total 12.1 s, planner 7.7–8.4 tok/s on the maternity question)
 - [ ] Size the DraftGate hold-back to the longest possible guarantee match (max regex width over `no_guarantee.patterns`, plus a margin) instead of the fixed 64 characters; it costs about 1.7 s of TTFT on local qwen3:8b
+- [ ] Review card: show the blockers and next best actions from the review summary (the interrupt payload carries counts, blockers, escalation reasons and next best actions since spec 07)
+- [ ] Fix the pre-existing mypy errors (about 40 on 2026-10-06 across agent, api and eval), then add mypy to `make lint`
 
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 

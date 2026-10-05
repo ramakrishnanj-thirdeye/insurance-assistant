@@ -1,6 +1,6 @@
 ---
 id: templates
-version: 0.2.1
+version: 0.3.0
 ---
 ## claim_status_fast_path
 Claim {claim_id} is **{claim_status}**{approved_clause}. It was filed on {claim_date} for {claim_amount} under {product_name}. [claims:{claim_id}]
@@ -35,3 +35,9 @@ Here is what the records show:
 
 ## clarification_policy
 Which policy do you mean? Give the policy ID (like POL100001).
+
+## premise_correction
+{claim_id} is {claim_status}, not {premise} {label}.
+
+## customer_message
+Here is an update on your claim {claim_id}, which is {claim_status}. Next steps: {steps}. Final decision depends on complete claim assessment.

@@ -1,15 +1,28 @@
 ---
 id: dossier_narrative
-version: 0.1.0
+version: 0.2.0
 role: generator
-output: markdown
+output: markdown (streamed; citations are the labels in the assessment)
 ---
-Write a claim assessment narrative from the ClaimAssessment JSON below. It is the only source you may use.
-- First line: the overall position in one sentence (e.g. "This claim has 3 blockers and needs human review.").
-- Then the blockers, then warnings and items needing review, each with its citation label from the JSON.
-- Mention every rule with status fail and severity blocker or escalate, and every review item. Mention nothing that is not in the JSON.
-- End with the next best actions as a short numbered list.
-- If a reviewer decision is present, state it and the note first.
-- View `{view}`: for customer view, plain language, no rule IDs, no scores, no internal flags.
-- Never promise approval. Copy numbers exactly.
+Write a claim assessment narrative from the assessment JSON below. It is the only source you may use.
+Reply with the narrative itself in markdown. No JSON, no preamble, no suggested questions.
+
+Order:
+1. If `premise_correction` is present, start with it, copied word for word.
+2. If `review` is present, state the reviewer's decision and note.
+3. The overall position in one sentence, using `counts`, ending with the claim's `label`.
+4. Every item in `findings`, in the order given: copy its `message` exactly, then its `citation` label.
+5. If `untracked_documents` is not empty, say they are not tracked in the document records.
+6. The `next_best_actions` as a numbered list, copied exactly.
+
+Rules:
+- Mention nothing that is not in the JSON. Copy numbers, amounts and dates exactly; never calculate.
+- Use only citation labels that appear in the JSON, copied exactly.
+- If the question assumes something the JSON contradicts (for example a different claim status), say what
+  the records show instead; never repeat the assumption as fact.
+- Never promise or imply approval or payment.
+- View `{view}`: for the customer view, plain language and second person, no rule IDs, no scores, no internal
+  flags; for the full view, concise operational language.
+
+<question>{question}</question>
 <assessment>{assessment_json}</assessment>

@@ -19,15 +19,16 @@ from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.resolve import fast_path_plan, is_fast_path, resolve_entities
 from insurai.agent.respond import guard_event, respond
-from insurai.agent.schemas import NO_WORKER, Entities, Plan, Reset
+from insurai.agent.schemas import NO_WORKER, AnswerDraft, Entities, Evidence, Plan, Reset
 from insurai.agent.state import AgentState, worker_payload
 from insurai.agent.synthesize import abstain_draft, last_question, synthesize
 from insurai.agent.trace import event, instant, llm_events, now_ms
 from insurai.agent.workers import WORKER_FOR, analytics_sql, claim_tools, policy_rag
 from insurai.guardrails.input import check_input
-from insurai.guardrails.verify import rewrite_guarantees, verify
+from insurai.guardrails.verify import labels_in, rewrite_guarantees, verify
 from insurai.llm.structured import StructuredOutputError, structured_call
 from insurai.observability import get_logger
+from insurai.rules.narrative import premise_correction, render_assessment
 from insurai.settings import ROOT, get_settings
 from insurai.tools.customers import own_claims, own_products
 from insurai.tools.messages import refusal
@@ -203,6 +204,8 @@ def verify_node(state: AgentState) -> dict[str, Any]:
     draft = state["draft"]
     evidence = state.get("evidence", [])
     question = last_question(state)
+    if decision := state.get("review"):
+        question += "\n" + decision.note  # the reviewer's note may carry numbers (V3), like the question
     as_of = get_settings().as_of_date
     report = verify(draft, evidence, state["persona"], question, as_of)  # type: ignore[arg-type]
     rewritten = False
@@ -217,7 +220,7 @@ def verify_node(state: AgentState) -> dict[str, Any]:
     elif attempts < get_settings().agent.verifier_retries:
         outcome, update["attempts"] = "retry", attempts + 1
     else:
-        outcome, update["draft"] = "abstain", abstain_draft(evidence)
+        outcome, update["draft"] = "abstain", fallback_draft(state, evidence)
     update["verdict"] = outcome
     update["trace"] = [
         event(
@@ -232,6 +235,20 @@ def verify_node(state: AgentState) -> dict[str, Any]:
         )
     ]
     return update
+
+
+def fallback_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDraft:
+    """After the last failed attempt: for a claim-analysis turn, the assessment rendered without an LLM
+    (findings, next steps, citations; respond appends the reviewer decision), never the policy-wording
+    abstention; otherwise the abstain draft."""
+    assessment = state.get("assessment")
+    plan = state.get("plan")
+    intent = next((i for i in plan.intents if i.type == "claim_analysis"), None) if plan else None
+    if assessment is None or intent is None:
+        return abstain_draft(evidence)
+    status = assessment.facts.get("claim_status")
+    text = render_assessment(assessment, premise_correction(intent.question, assessment.claim_id, status))
+    return AnswerDraft(answer_markdown=text, citations=labels_in(text))
 
 
 # --- routing ----------------------------------------------------------------------------------------------

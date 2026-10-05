@@ -64,15 +64,20 @@ def _by_name(name: str, city: str | None) -> HospitalCheck | Disambiguation | No
 
 
 def _check(row: dict[str, Any]) -> HospitalCheck:
-    alternatives = [
+    found = alternatives(row["city"], row["specialty"], row["hospital_id"])
+    refs = [sql_source("hospitals", row["hospital_id"])]
+    refs += [sql_source("hospitals", a.hospital_id) for a in found]
+    return HospitalCheck.model_validate({**row, "alternatives": found, "sources": refs})
+
+
+def alternatives(city: str, specialty: str, hospital_id: str) -> list[HospitalSummary]:
+    """Up to three Network hospitals in the same city and specialty, never the hospital itself."""
+    return [
         HospitalSummary.model_validate(r)
         for r in fetch_all(
             f"""SELECT {_COLUMNS} FROM silver.hospitals
                 WHERE network_status = ? AND city = ? AND specialty = ? AND hospital_id <> ?
                 ORDER BY hospital_id LIMIT ?""",
-            [NETWORK, row["city"], row["specialty"], row["hospital_id"], MAX_ALTERNATIVES],
+            [NETWORK, city, specialty, hospital_id, MAX_ALTERNATIVES],
         )
     ]
-    refs = [sql_source("hospitals", row["hospital_id"])]
-    refs += [sql_source("hospitals", a.hospital_id) for a in alternatives]
-    return HospitalCheck.model_validate({**row, "alternatives": alternatives, "sources": refs})

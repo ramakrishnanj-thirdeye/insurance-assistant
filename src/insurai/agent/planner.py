@@ -1,7 +1,8 @@
 """Planner (spec 06): one structured LLM call for the Plan, then deterministic finalisation.
 
 `finalize_plan` fills IDs from the message and active_entities, resolves products (routing rule 2), caps the
-intent count (rule 6) and turns unresolvable gaps into clarifications. It never invents an ID.
+intent count (rule 6), sets explain vs assess on claim_analysis intents and turns unresolvable gaps into
+clarifications. It never invents an ID.
 """
 
 import json
@@ -14,6 +15,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.resolve import canonical_product, product_names
 from insurai.agent.schemas import NO_WORKER, Entities, Intent, Plan
+from insurai.rules.narrative import question_mode
 from insurai.tools.schemas import Persona
 
 # Routing rule 2 probe (an unfiltered search_policy): a confident common (ALL) top hit needs no product;
@@ -88,7 +90,10 @@ def finalize_plan(plan: Plan, ctx: PlanContext) -> Plan:
             if clarification:
                 return Plan(clarification=clarification)
             entities = entities.model_copy(update={"product": product})
-        out.append(intent.model_copy(update={"id": f"i{n}", "entities": entities}))
+        update: dict[str, object] = {"id": f"i{n}", "entities": entities, "mode": None, "question": None}
+        if intent.type == "claim_analysis":  # explain vs assess (deterministic, from the user's words)
+            update |= {"mode": question_mode(ctx.message), "question": ctx.message}
+        out.append(intent.model_copy(update=update))
     return Plan(intents=out)
 
 

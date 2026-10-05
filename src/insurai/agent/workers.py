@@ -2,6 +2,8 @@
 Evidence plus trace spans; tool access control stays in the tools.
 """
 
+import contextvars
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from pydantic import BaseModel
@@ -71,6 +73,22 @@ class Recorder:
         """Call `tool` with `args`; positional-only so a tool argument called `name` cannot collide."""
         start = now_ms()
         result: BaseModel = TOOLS[tool](self.ctx, **args)
+        return self.record(tool, args, result, start)
+
+    def call_parallel(self, calls: list[tuple[str, dict[str, Any]]]) -> list[BaseModel]:
+        """Run independent tool calls at once (each on its own DuckDB connection), recorded in call order.
+        Each thread runs in a copy of the caller's context so tool progress events still stream."""
+
+        def run(tool: str, args: dict[str, Any]) -> tuple[float, BaseModel]:
+            start = now_ms()
+            return start, TOOLS[tool](self.ctx, **args)
+
+        with ThreadPoolExecutor(max_workers=len(calls) or 1) as pool:
+            futures = [pool.submit(contextvars.copy_context().run, run, t, a) for t, a in calls]
+            outcomes = [f.result() for f in futures]
+        return [self.record(t, a, r, s) for (t, a), (s, r) in zip(calls, outcomes, strict=True)]
+
+    def record(self, tool: str, args: dict[str, Any], result: BaseModel, start: float) -> BaseModel:
         kind = str(getattr(result, "kind", "ok"))
         self.trace.append(
             event(

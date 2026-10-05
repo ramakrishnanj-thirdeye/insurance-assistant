@@ -64,7 +64,7 @@ class AccessDenied(BaseModel): kind: Literal["access_denied"] = "access_denied";
   ```
 
 ## Acceptance criteria
-- [~] AC-05-01 Each tool has unit tests for found, not found, bad ID format and access denied. (8 of 11 tools; analyze_claim and portfolio_audit deferred to M5, run_analytics to M6)
+- [~] AC-05-01 Each tool has unit tests for found, not found, bad ID format and access denied. (10 of 11 tools: analyze_claim and portfolio_audit added 2026-10-06 with spec 07, portfolio_audit supervisor-only; run_analytics in M6)
 - [x] AC-05-02 sql_facts slice (40 items; 20 under the 3-day scope) answered 100% correctly by tools alone (exact match).
 - [x] AC-05-03 Every successful result has ≥ 1 SourceRef whose label matches the formats in config/guardrails.yaml.
 - [x] AC-05-04 Customer persona: another customer's claim → AccessDenied; `fraud_risk_score` absent from every customer result (property test over 100 random owned claims).

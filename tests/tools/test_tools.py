@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from tool_ids import KNOWN_CLAIM, KNOWN_HOSPITAL, KNOWN_OWNER, KNOWN_POLICY, make_ctx
 
 from insurai.retrieval.schemas import RetrievalResult
+from insurai.rules.schemas import ClaimAssessment
 from insurai.tools import access, sources
 from insurai.tools.registry import TOOLS
 from insurai.tools.schemas import (
@@ -74,7 +75,14 @@ CASES: dict[str, tuple[dict[str, Any], type[BaseModel], dict[str, Any], dict[str
         {"product": "No Such Plan"},
         {"attribute": "colour"},
     ),
+    "analyze_claim": (
+        {"claim_id": KNOWN_CLAIM},
+        ClaimAssessment,
+        {"claim_id": "CLM999999"},
+        {"claim_id": "CLM30021"},
+    ),
 }
+SUPERVISOR_ONLY = {"portfolio_audit"}  # tested below; claims_agent is denied
 NEEDS_INDEX = {"search_policy"}
 
 
@@ -122,7 +130,14 @@ def test_AC_05_01_access_denied_when_tool_not_listed(
     assert isinstance(_call(name, make_ctx(), CASES[name][0]), AccessDenied)
 
 
-OWNED = ["get_claim", "get_claim_documents", "get_claim_interactions", "get_policy", "get_customer_summary"]
+OWNED = [
+    "get_claim",
+    "get_claim_documents",
+    "get_claim_interactions",
+    "get_policy",
+    "get_customer_summary",
+    "analyze_claim",
+]
 
 
 @pytest.mark.parametrize("name", OWNED)
@@ -295,5 +310,40 @@ def test_M3_hospital_name_lookup(warehouse: duckdb.DuckDBPyConnection) -> None:
     assert isinstance(result, HospitalCheck) and result.hospital_id == KNOWN_HOSPITAL
 
 
-def test_M3_registry_has_the_eight_spec05_tools() -> None:
-    assert set(TOOLS) == set(CASES)
+def test_registry_has_the_ten_spec05_tools_built_so_far() -> None:
+    assert set(TOOLS) == set(CASES) | SUPERVISOR_ONLY  # run_analytics joins in M6 (spec 02)
+
+
+def _rule_results_ready(warehouse: duckdb.DuckDBPyConnection) -> None:
+    tables = {
+        r[0]
+        for r in warehouse.execute(
+            "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'gold'"
+        ).fetchall()
+    }
+    if "rule_results" not in tables:
+        pytest.skip("gold.rule_results not built: run `make rules`")
+
+
+def test_AC_05_01_portfolio_audit_supervisor_counts_and_samples(warehouse: duckdb.DuckDBPyConnection) -> None:
+    _rule_results_ready(warehouse)
+    result = TOOLS["portfolio_audit"](
+        make_ctx("supervisor"), flag="C1", product="Critical Care Elite", limit=5
+    )
+    assert type(result).__name__ == "PortfolioAudit", result
+    assert len(result.samples) == 5 and all("C1" in s.flags for s in result.samples)
+    assert all(s.product_name == "Critical Care Elite" for s in result.samples)
+    assert result.report.consistency_counts["C1"] == result.report.by_product["Critical Care Elite"]["C1"]
+    assert [s.label for s in result.sources] == [f"[rule_results:{s.claim_id}]" for s in result.samples]
+    whole = TOOLS["portfolio_audit"](make_ctx("supervisor"))
+    assert whole.report.claims == 120_000 and whole.report.fail_counts["R10"] == 1_164
+
+
+def test_AC_05_01_portfolio_audit_denied_for_agent_and_customer(warehouse: duckdb.DuckDBPyConnection) -> None:
+    assert isinstance(TOOLS["portfolio_audit"](make_ctx()), AccessDenied)
+    assert isinstance(TOOLS["portfolio_audit"](make_ctx("customer", KNOWN_OWNER)), AccessDenied)
+
+
+def test_AC_05_01_portfolio_audit_unknown_flag_and_product(warehouse: duckdb.DuckDBPyConnection) -> None:
+    assert isinstance(TOOLS["portfolio_audit"](make_ctx("supervisor"), flag="C9"), NotFound)
+    assert isinstance(TOOLS["portfolio_audit"](make_ctx("supervisor"), product="No Such Plan"), NotFound)

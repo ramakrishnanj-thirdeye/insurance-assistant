@@ -25,6 +25,7 @@ class PersonaConfig(BaseModel):
     tools: list[str]
     can_resume_review: bool = False
     can_read_eval_reports: bool = False
+    analyze_claim_view: Literal["full", "customer"] = "full"  # spec 07 Behaviour 8
 
 
 @lru_cache(maxsize=1)

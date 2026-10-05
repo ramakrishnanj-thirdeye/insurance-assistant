@@ -14,7 +14,7 @@ A thin, typed, streaming API over the graph and tools, so the UI is swappable an
 | GET | /threads/{thread_id} | — | ThreadDetail: status, user and assistant messages, last trace, pending review summary |
 | PATCH | /threads/{thread_id} | {title} | ThreadSummary |
 | DELETE | /threads/{thread_id} | — | 204; removes the thread record and its checkpoints |
-| GET | /claims/{claim_id}/dossier | ?narrate=false&persona=&principal_id= | ClaimAssessment |
+| GET | /claims/{claim_id}/dossier | ?narrate=false&persona=&principal_id= | ClaimAssessment (narrate=true adds clauses, narrative and customer message draft; no interrupt on this path) |
 | GET | /coverage-matrix | ?product=&attribute= | CoverageCells |
 | GET | /audit/summary | persona must be supervisor | PortfolioReport counts by rule, flag, product |
 | GET | /audit/claims | ?flag=C1&product=&limit=50 | sample claims for drill-down |
