@@ -1,0 +1,76 @@
+# Status line above the answer (spec 10). Every phrase must describe what is actually happening.
+#   nodes.<node>: phrases rotated on each heartbeat (spec 09 `heartbeat`); the first shows at node start.
+#   tools.<tool>, understood: alternatives; the first whose placeholders all have values is used.
+# Placeholders: only status-safe values the API sends (observability/progress.status_args): well-formed
+# claim_id, policy_id, hospital_id and canonical product names; `understood` may also use {intents}.
+# Never a customer name, a typed query or a city. The customer persona always gets `professional`.
+version: 1
+default_tone: professional
+tones:
+  professional:
+    nodes:
+      input_guard: ["Checking the question"]
+      resolve_context: ["Looking for claim, policy and product references"]
+      planner: ["Reading your question", "Working out which records to check"]
+      claim_tools: ["Gathering the claim records"]
+      policy_rag: ["Searching the policy wording"]
+      analytics_sql: ["Running the analysis query"]
+      claim_dossier: ["Checking the claim against the rules"]
+      synthesize: ["Drafting the answer", "Lining up the citations"]
+      verify: ["Checking every number against the records"]
+      respond: ["Finishing the answer"]
+    tools:
+      get_claim: ["Pulling up claim {claim_id}", "Pulling up the claim"]
+      get_claim_documents: ["Checking the claim's documents"]
+      get_claim_interactions: ["Reading the claim's interaction history"]
+      get_policy: ["Pulling up policy {policy_id}", "Pulling up the policy"]
+      get_customer_summary: ["Pulling up the customer summary"]
+      check_hospital: ["Checking hospital {hospital_id} against the network", "Checking the hospital against the network"]
+      search_policy: ["Searching the {product} wording", "Searching the policy wording"]
+      get_coverage: ["Reading the {product} coverage table", "Reading the coverage table"]
+    understood:
+      - "Understood: {intents} · {product}"
+      - "Understood: {intents} · {claim_id}"
+      - "Understood: {intents} · {policy_id}"
+      - "Understood: {intents}"
+    badges: {checking: "checking…", revising: "revising…", verified: "✓ verified"}
+  playful:
+    nodes:
+      input_guard: ["Giving your question a quick safety check"]
+      resolve_context: ["Spotting the claim, policy and product names"]
+      planner: ["Reading your question closely", "Sketching out which records to pull"]
+      claim_tools: ["Fetching the claim files"]
+      policy_rag: ["Leafing through the policy wording"]
+      analytics_sql: ["Crunching the analysis query"]
+      claim_dossier: ["Walking the claim through the rules"]
+      synthesize: ["Putting the answer into words", "Pinning a source to every line"]
+      verify: ["Double-checking every number against the records"]
+      respond: ["Wrapping up the answer"]
+    tools:
+      get_claim: ["Fetching claim {claim_id} from the files", "Fetching the claim from the files"]
+      get_claim_documents: ["Ticking through the claim's documents"]
+      get_claim_interactions: ["Reading back through the claim's contact log"]
+      get_policy: ["Fetching policy {policy_id} from the files", "Fetching the policy from the files"]
+      get_customer_summary: ["Fetching the customer summary"]
+      check_hospital: ["Looking up hospital {hospital_id} on the network list", "Looking up the hospital on the network list"]
+      search_policy: ["Leafing through the {product} wording", "Leafing through the policy wording"]
+      get_coverage: ["Scanning the {product} coverage table", "Scanning the coverage table"]
+    understood:
+      - "Got it: {intents} · {product}"
+      - "Got it: {intents} · {claim_id}"
+      - "Got it: {intents} · {policy_id}"
+      - "Got it: {intents}"
+    badges: {checking: "checking…", revising: "revising…", verified: "✓ verified"}
+intent_labels:
+  claim_status: claim status
+  claim_documents: claim documents
+  claim_interactions: claim interactions
+  claim_analysis: claim analysis
+  policy_details: policy details
+  policy_question: policy question
+  coverage_compare: coverage comparison
+  hospital_check: hospital check
+  customer_summary: customer summary
+  analytics: analytics
+  greeting: greeting
+  out_of_scope: out of scope

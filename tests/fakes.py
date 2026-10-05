@@ -1,18 +1,20 @@
 """Scripted chat model for agent unit tests: no network, scripted structured outputs, real callbacks.
 
-Responses are keyed by the structured-output schema name ("Plan", "AnswerDraft"). Each value is a list
-(consumed in order) or a callable taking the prompt messages. A str response is returned verbatim, so a
-test can script invalid JSON.
+Responses are keyed by the structured-output schema name ("Plan"), or "Text" for plain calls (synthesize).
+Each value is a list (consumed in order) or a callable taking the prompt messages. A str response is
+returned verbatim, so a test can script invalid JSON. Plain calls stream word by word when the caller
+streams (LangGraph stream mode `messages`), so tests see real token events.
 """
 
 import json
-from collections.abc import Callable, Sequence
+import re
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, ValidationError
 
@@ -37,23 +39,38 @@ class ScriptedChatModel(BaseChatModel):
         schema_name: str | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        script = self.responses[schema_name or ""]
+        message = AIMessage(content=self._content(messages, schema_name), usage_metadata=self._usage())
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        schema_name: str | None = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        pieces = re.findall(r"\S+\s*|\s+", self._content(messages, schema_name)) or [""]
+        for n, piece in enumerate(pieces, start=1):
+            usage = self._usage() if n == len(pieces) else None
+            chunk = ChatGenerationChunk(message=AIMessageChunk(content=piece, usage_metadata=usage))
+            if run_manager:
+                run_manager.on_llm_new_token(piece, chunk=chunk)
+            yield chunk
+
+    def _content(self, messages: list[BaseMessage], schema_name: str | None) -> str:
+        script = self.responses[schema_name or "Text"]
         value = script(messages) if callable(script) else script.pop(0)
         if isinstance(value, BaseModel):
-            content = value.model_dump_json()
-        elif isinstance(value, str):
-            content = value
-        else:
-            content = json.dumps(value)
-        message = AIMessage(
-            content=content,
-            usage_metadata={
-                "input_tokens": self.input_tokens,
-                "output_tokens": self.output_tokens,
-                "total_tokens": self.input_tokens + self.output_tokens,
-            },
-        )
-        return ChatResult(generations=[ChatGeneration(message=message)])
+            return value.model_dump_json()
+        return value if isinstance(value, str) else json.dumps(value)
+
+    def _usage(self) -> Any:
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.input_tokens + self.output_tokens,
+        }
 
     def with_structured_output(  # type: ignore[override]
         self, schema: Any, *, include_raw: bool = False, **kwargs: Any
@@ -72,7 +89,7 @@ class ScriptedChatModel(BaseChatModel):
 
 
 def install(monkeypatch: Any, responses: dict[str, Responder], **kwargs: Any) -> ScriptedChatModel:
-    """Route every structured LLM call to one scripted model."""
+    """Route every LLM call (structured and plain) to one scripted model."""
     from insurai.llm import structured
 
     model = ScriptedChatModel(responses=responses, **kwargs)
@@ -126,9 +143,6 @@ def planner_script(table: dict[str, Any]) -> Callable[[list[BaseMessage]], Any]:
 
 def citing_synth(messages: list[BaseMessage]) -> Any:
     """A synthesizer that cites the first evidence label it was given and states no numbers."""
-    import re
-
-    from insurai.agent.schemas import AnswerDraft
     from insurai.guardrails.verify import labels_in
 
     labels = [
@@ -137,6 +151,4 @@ def citing_synth(messages: list[BaseMessage]) -> Any:
         for label in labels_in(attr)
     ]
     first = labels[0] if labels else ""
-    return AnswerDraft(
-        answer_markdown=f"Here is what the records show. {first}".strip(), citations=labels[:1]
-    )
+    return f"Here is what the records show. {first}".strip()

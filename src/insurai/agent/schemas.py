@@ -65,9 +65,7 @@ class Evidence(BaseModel):
 
 class AnswerDraft(BaseModel):
     answer_markdown: str  # every factual sentence ends with ≥ 1 citation label from evidence
-    citations: list[str] = Field(default_factory=list)  # labels used
-    conflicts: list[str] = Field(default_factory=list)  # schedule-vs-document disagreements (spec 08)
-    follow_ups: list[str] = Field(default_factory=list, max_length=2)  # suggested next questions
+    citations: list[str] = Field(default_factory=list)  # labels parsed from answer_markdown (regex)
 
 
 class Reset(BaseModel):

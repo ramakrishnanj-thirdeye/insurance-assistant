@@ -33,7 +33,7 @@ def _install_scripts(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch,
         {
             "Plan": planner_script({"analyze": ANALYZE, "which documents are missing": DOCS_FOLLOW_UP}),
-            "AnswerDraft": citing_synth,
+            "Text": citing_synth,
         },
     )
 
@@ -151,7 +151,7 @@ def test_AC_06_03_two_intents_overlapping_worker_spans(graph: Any, monkeypatch: 
         ("policy_question", {"product": "Motor Protect Comprehensive"}),
         question="Is drunk driving covered under Motor Protect Comprehensive?",
     )
-    install(monkeypatch, {"Plan": [two], "AnswerDraft": citing_synth})
+    install(monkeypatch, {"Plan": [two], "Text": citing_synth})
     result = run_turn(graph, "t-ac03", question, AGENT)
     plan = next(e for e in result.trace if e.kind == "intent" and e.name == "plan")
     assert [i["type"] for i in plan.data["intents"]] == ["claim_status", "policy_question"]
@@ -173,16 +173,14 @@ def test_AC_06_03_two_intents_overlapping_worker_spans(graph: Any, monkeypatch: 
 
 
 def test_verify_retries_once_with_feedback_then_abstains(graph: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    from insurai.agent.schemas import AnswerDraft
-
     prompts: list[str] = []
 
-    def bad_synth(messages: list[Any]) -> AnswerDraft:
+    def bad_synth(messages: list[Any]) -> str:
         prompts.append(str(messages[0].content))
-        return AnswerDraft(answer_markdown="Payable is ₹99,999. [claims:CLM300210]")  # invented number
+        return "Payable is ₹99,999. [claims:CLM300210]"  # invented number
 
     plan = plan_of(("claim_documents", {"claim_id": "CLM300210"}), question="Which documents are missing?")
-    install(monkeypatch, {"Plan": [plan], "AnswerDraft": bad_synth})
+    install(monkeypatch, {"Plan": [plan], "Text": bad_synth})
     result = run_turn(graph, "t-retry", "Which documents are missing for CLM300210?", AGENT)
     outcomes = [e.data["outcome"] for e in result.trace if e.kind == "verify"]
     assert outcomes == ["retry", "abstain"]
@@ -203,7 +201,7 @@ def test_hospital_check_by_id_and_via_claim(
 ) -> None:
     install(
         monkeypatch,
-        {"Plan": [plan_of(("hospital_check", entities), question=question)], "AnswerDraft": citing_synth},
+        {"Plan": [plan_of(("hospital_check", entities), question=question)], "Text": citing_synth},
     )
     result = run_turn(graph, f"t-hosp-{len(entities)}-{question[:6]}", question, AGENT)
     assert [e.name for e in result.trace if e.kind == "tool"][-1] == "check_hospital"
@@ -219,9 +217,7 @@ def test_rule2_unanswerable_without_product_abstains_without_llm_synthesis(
     def no_synth(messages: list[Any]) -> Any:
         raise AssertionError("synthesizer must not run: the abstention is a template")
 
-    install(
-        monkeypatch, {"Plan": [plan_of(("policy_question", {}), question=question)], "AnswerDraft": no_synth}
-    )
+    install(monkeypatch, {"Plan": [plan_of(("policy_question", {}), question=question)], "Text": no_synth})
     result = run_turn(graph, "t-abstain", question, AGENT)
     assert result.answer_markdown.startswith("The policy documents don't address this directly.")
     assert result.verification_passed is True and result.citations
@@ -235,3 +231,47 @@ def test_AC_06_06_real_probe_still_clarifies_waiting_period(
     install(monkeypatch, {"Plan": [plan_of(("policy_question", {}), question=question)]})
     result = run_turn(graph, "t-ac06", question, AGENT)
     assert result.answer_markdown.startswith("Which product do you mean?")
+
+
+async def _events(graph: Any, thread_id: str, message: str) -> list[tuple[str, Any]]:
+    from insurai.agent.runner import astream_turn
+
+    return [e async for e in astream_turn(graph, thread_id, message, AGENT)]
+
+
+async def test_AC_06_14_fast_path_and_not_found_template_emit_no_tokens(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_llm(monkeypatch)
+    for n, message in enumerate(("status of CLM300210", "status of CLM999999")):
+        events = await _events(graph, f"t-ac14-{n}", message)
+        names = [name for name, _ in events]
+        assert "token" not in names and "draft_hidden" not in names and names[-1] == "result"
+
+
+async def test_AC_06_14_planner_not_found_template_emits_no_tokens(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_synth(messages: list[Any]) -> Any:
+        raise AssertionError("NOT_FOUND is a template; no synthesis")
+
+    plan = plan_of(("claim_documents", {"claim_id": "CLM999999"}), question="Which documents are missing?")
+    install(monkeypatch, {"Plan": [plan], "Text": no_synth})
+    events = await _events(graph, "t-ac14-nf", "Which documents are missing for CLM999999?")
+    assert "token" not in [name for name, _ in events]
+
+
+async def test_AC_06_13_verify_runs_on_the_full_streamed_text(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = "The claim documents are listed in the record. [claim_documents:CLM300210] Payable is ₹99,999."
+    plan = plan_of(("claim_documents", {"claim_id": "CLM300210"}), question="Which documents are missing?")
+    install(monkeypatch, {"Plan": [plan], "Text": lambda messages: text})
+    events = await _events(graph, "t-ac13-full", "Which documents are missing for CLM300210?")
+    first = [d["text"] for name, d in events if name == "token" and d["attempt"] == 1]
+    assert "".join(first) == text and "99,999" in first[-1]  # the orphan number arrives in the last chunk
+    outcomes = [d.get("outcome") for name, d in events if name == "node" and d["name"] == "verify"]
+    outcomes = [o for o in outcomes if o]
+    assert outcomes == ["retry", "abstain"]  # V3 saw the complete text, not a prefix
+    result = events[-1][1]
+    assert "99,999" not in result.answer_markdown

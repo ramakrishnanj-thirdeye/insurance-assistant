@@ -44,7 +44,7 @@ def test_AC_09_02_chat_streams_thread_nodes_final_done(
     assert status == 200
     names = _names(events)
     assert names[0] == "thread" and names[-2:] == ["final", "done"]
-    assert set(names[1:-2]) <= {"node", "tool"} and "node" in names
+    assert set(names[1:-2]) <= {"node", "tool_start", "tool", "heartbeat"} and "node" in names
     nodes = [d for n, d in events if n == "node"]
     assert nodes[0] == {"name": "input_guard", "status": "start"}
     assert {d["name"] for d in nodes if d["status"] == "end"} >= {"input_guard", "claim_tools", "respond"}
@@ -139,7 +139,7 @@ async def test_AC_09_08_concurrent_chat_one_streams_other_409_busy(
         assert gate.wait(30), "test never released the planner"
         return WHY_PENDING
 
-    install(monkeypatch, {"Plan": blocking_planner, "AnswerDraft": citing_synth})
+    install(monkeypatch, {"Plan": blocking_planner, "Text": citing_synth})
     app = create_app()
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
@@ -188,7 +188,7 @@ def test_graph_error_streams_error_then_done_and_frees_thread(
     def broken(messages: list[Any]) -> Any:
         raise RuntimeError("model crashed")
 
-    install(monkeypatch, {"Plan": broken, "AnswerDraft": citing_synth})
+    install(monkeypatch, {"Plan": broken, "Text": citing_synth})
     status, events = stream(client, "/chat", {"message": WHY}, AGENT)
     assert status == 200 and _names(events)[-2:] == ["error", "done"]
     assert events[-2][1]["code"] == "TURN_FAILED" and "crashed" not in events[-2][1]["message"]

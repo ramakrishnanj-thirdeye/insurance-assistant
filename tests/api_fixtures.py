@@ -31,7 +31,7 @@ def scripted(monkeypatch: pytest.MonkeyPatch) -> Any:
         monkeypatch,
         {
             "Plan": planner_script({"analyze": ANALYZE, "why is": WHY_PENDING}),
-            "AnswerDraft": citing_synth,
+            "Text": citing_synth,
         },
     )
 

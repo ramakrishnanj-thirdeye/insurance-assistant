@@ -69,9 +69,24 @@ Rules:
 8. **Cleanup.** `make reset-threads` deletes `paths.checkpoints` (stop the API first; CLAUDE.md Windows note).
 
 ## SSE events (`event:` name, `data:` JSON)
-`thread` {thread_id} → `node` {name, status: start|end, ms} (repeated) → `tool` {name, args_redacted, ms, ok} →
-`token` {text} (synthesize only, optional) → `interrupt` {assessment_summary} **or** `final` {answer_markdown,
-citations, trace, assessment?} → `done`. Errors: `error` {code, message} then `done`.
+`thread` {thread_id} → interleaved, repeated:
+- `node` {name, status: start|end, ms, interrupted}; an end event may add `outcome` (verify: pass | retry |
+  abstain) or `plan` (planner, and resolve_context on the fast path: {intents, product, claim_ids, policy_ids},
+  never customer data or typed free text)
+- `tool_start` {name, args_redacted} (well-formed IDs and canonical product names only) and `tool` {name,
+  args_redacted, ms, ok}
+- `heartbeat` {node, elapsed_ms, beat}: every `agent.heartbeat_s` (2 s) while a node runs longer than that
+- `token` {text, attempt} (synthesize only; attempt 2 follows a verify retry) and `draft_hidden` {attempt,
+  reason: guarantee | reasoning}
+
+→ `interrupt` {assessment_summary} **or** `final` {answer_markdown, citations, trace, assessment?, verified}
+→ `done`. Errors: `error` {code, message} then `done`.
+
+**Never stream a promise.** Each attempt's accumulated draft is checked against the V4 no-guarantee
+patterns; text is released only `no_guarantee.stream_holdback_chars` (64) behind the newest token, on a
+word boundary, so a phrase split across chunks is never partly sent. On a hit the attempt stops streaming
+and one `draft_hidden` is sent; `<think>` text never streams (an unclosed block hides the attempt). The
+`final` answer is the verified text (V4 rewrite applied).
 
 ## Behaviour
 - **Single API worker.** The per-thread lock is in-process, so `make api` runs one uvicorn worker. Production
@@ -80,8 +95,10 @@ citations, trace, assessment?} → `done`. Errors: `error` {code, message} then 
 - **Identity.** The headers are authoritative. `persona` / `principal_id` in a request body or query are
   optional and must equal the headers, else 400 `IDENTITY_MISMATCH`; missing headers → 400 `IDENTITY_REQUIRED`.
 - **Streaming.** `node` events come from LangGraph stream mode `tasks`, `tool` events from the workers' tool
-  trace events in `updates` (args already redacted; `ok` = result is not not_found/access_denied). `token`
-  events are not emitted: synthesize uses structured output.
+  trace events in `updates` (args already redacted; `ok` = result is not not_found/access_denied),
+  `tool_start` from `custom`, `token` from `messages` filtered to the synthesize node and passed through the
+  draft gate (`agent/progress.py`). Heartbeats come from `with_heartbeats` in `api/streaming.py`: a pump task
+  feeds a queue so waiting for the next beat never cancels the graph iterator.
 - **Connections.** Qdrant uses the process's cached reader; DuckDB stays per call (read-only), as decided
   2026-10-04 in tasks.md, so `make data` can replace the warehouse without stopping the API.
 - Pydantic v2 schemas in `src/insurai/api/schemas.py`; OpenAPI at /docs.
@@ -101,4 +118,8 @@ citations, trace, assessment?} → `done`. Errors: `error` {code, message} then 
 - [x] AC-09-10 `GET /threads` returns only the caller's threads, newest first, with titles PII-masked and at most 60 characters plus an ellipsis.
 - [x] AC-09-11 `DELETE /threads/{id}` removes the record and its checkpoints; a later GET returns 404.
 - [x] AC-09-12 A thread left in running when the API stops is active after restart.
+- [x] AC-09-13 /chat event order is thread → node… → token… → final → done, with every token inside a synthesize start/end window; a verify retry streams attempt-2 tokens after `outcome: retry`; a draft containing "will definitely be approved" emits no token with the phrase, one `draft_hidden`, and a final with the mandated wording; a `<think>` block never streams.
+- [x] AC-09-14 A node running longer than `heartbeat_s` gets a `heartbeat` every `heartbeat_s` (beats 1, 2, …, elapsed ≥ beat × interval); a shorter node gets none.
+- [x] AC-09-15 The planner end event carries {intents, product, claim_ids, policy_ids} only; no customer name or customer ID appears in any event before `final`.
+- [x] AC-09-16 `tool_start` precedes its `tool` event and carries only status-safe args; outside a graph run (MCP, scripts) nothing is emitted.
 - [~] deferred: 3-day scope (needs the spec 11 runner, M7). AC-09-06 `python -m insurai.eval.run --via-api` produces the same metrics as in-process (± judge noise) on the fast suite.

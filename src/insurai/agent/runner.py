@@ -2,8 +2,8 @@
 
 Sync functions serve evals and tests (InMemorySaver, SqliteSaver); the `a*` variants serve the async API
 (AsyncSqliteSaver cannot answer a sync get_state). `astream_turn` and `astream_resume` yield neutral
-events the API maps to SSE (spec 09): ("node", {name, status, ms}), ("tool", {...}), then
-("result", TurnResult).
+events the API maps to SSE (spec 09): ("node", {name, status, ms, ...}), ("tool_start", {...}),
+("tool", {...}), ("token", {text, attempt}), ("draft_hidden", {attempt, reason}), then ("result", TurnResult).
 """
 
 import time
@@ -11,12 +11,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
 
-from insurai.agent.schemas import TraceEvent, TurnResult
+from insurai.agent.progress import DraftGate, plan_summary
+from insurai.agent.schemas import Plan, TraceEvent, TurnResult
 from insurai.guardrails.verify import labels_in
 from insurai.rules.schemas import ReviewDecision
 from insurai.tools.schemas import Persona
@@ -111,35 +112,62 @@ async def astream_resume(
         yield item
 
 
+STREAM_MODES = ["tasks", "updates", "messages", "custom"]
+TOKEN_NODE = "synthesize"
+
+
 async def _astream(
     graph: CompiledStateGraph, thread_id: str, payload: Any, callbacks: list[BaseCallbackHandler] | None
 ) -> AsyncIterator[RunEvent]:
-    """Node start/end from stream mode `tasks`, tool calls from the workers' trace events in `updates`."""
+    """Node start/end from `tasks`, tool calls from the workers' trace events in `updates`, synthesize tokens
+    from `messages` (through the draft gate), tool starts from `custom`."""
     started: dict[str, float] = {}
+    attempt = 0
+    gate: DraftGate | None = None
     config = _config(thread_id, callbacks)
-    async for mode, data in graph.astream(payload, config, stream_mode=["tasks", "updates"]):
-        if mode == "tasks":
+    async for mode, data in graph.astream(payload, config, stream_mode=STREAM_MODES):
+        if mode == "messages":
+            chunk, meta = data
+            ours = meta.get("langgraph_node") == TOKEN_NODE and isinstance(chunk, AIMessageChunk)
+            if gate is not None and ours:
+                for item in gate.feed(chunk.text):
+                    yield item
+        elif mode == "custom":
+            if isinstance(data, dict) and data.get("event") == "tool_start":
+                yield "tool_start", {"name": data.get("name"), "args_redacted": data.get("args_redacted", {})}
+        elif mode == "tasks":
             if "result" not in data:
                 started[data["id"]] = time.perf_counter()
+                if data["name"] == TOKEN_NODE:
+                    attempt += 1
+                    gate = DraftGate(attempt)
                 yield "node", {"name": data["name"], "status": "start"}
-            else:
-                ms = round((time.perf_counter() - started.pop(data["id"], time.perf_counter())) * 1000, 1)
-                yield (
-                    "node",
-                    {
-                        "name": data["name"],
-                        "status": "end",
-                        "ms": ms,
-                        "interrupted": bool(data["interrupts"]),
-                    },
-                )
-            continue
-        for update in data.values():
-            trace = update.get("trace") if isinstance(update, dict) else None
-            for ev in trace if isinstance(trace, list) else []:
-                if isinstance(ev, TraceEvent) and ev.kind == "tool":
-                    yield "tool", tool_event(ev)
+                continue
+            if data["name"] == TOKEN_NODE and gate is not None:
+                for item in gate.close():
+                    yield item
+                gate = None
+            ms = round((time.perf_counter() - started.pop(data["id"], time.perf_counter())) * 1000, 1)
+            end = {"name": data["name"], "status": "end", "ms": ms, "interrupted": bool(data["interrupts"])}
+            yield "node", {**end, **node_extras(data["name"], data.get("result"))}
+        else:
+            for update in data.values():
+                trace = update.get("trace") if isinstance(update, dict) else None
+                for ev in trace if isinstance(trace, list) else []:
+                    if isinstance(ev, TraceEvent) and ev.kind == "tool":
+                        yield "tool", tool_event(ev)
     yield "result", await aresult(graph, thread_id)
+
+
+def node_extras(name: str, result: Any) -> dict[str, Any]:
+    """Safe extras on a node's end event: the verify outcome, the plan summary (spec 09)."""
+    writes = result if isinstance(result, dict) else {}
+    if name == "verify" and writes.get("verdict"):
+        return {"outcome": writes["verdict"]}
+    if name == "planner" or (name == "resolve_context" and writes.get("fast_path")):
+        plan = writes.get("plan")
+        return {"plan": plan_summary(plan)} if isinstance(plan, Plan) else {}
+    return {}
 
 
 def tool_event(ev: TraceEvent) -> dict[str, Any]:

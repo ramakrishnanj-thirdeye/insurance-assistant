@@ -94,13 +94,16 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 `judge_correctness.md`, `templates.md`. Each file starts with `id:` and `version:` front matter.
 
 ## Synthesis contract (AnswerDraft)
+Synthesize returns plain markdown (`text_call`, prompt `synthesize.md` v0.2.0), not structured JSON, so the
+answer can stream. The planner stays structured.
 ```python
 class AnswerDraft(BaseModel):
     answer_markdown: str            # every factual sentence ends with ≥ 1 citation label from evidence
-    citations: list[str]            # labels used
-    conflicts: list[str]            # schedule-vs-document disagreements surfaced (spec 08)
-    follow_ups: list[str]           # ≤ 2 suggested next questions
+    citations: list[str]            # labels parsed from answer_markdown by regex (labels_in)
 ```
+Schedule-vs-document conflicts (spec 08) are sentences in the text that cite both labels. There are no
+follow-up suggestions. Empty output abstains. Verify (V1–V4) runs on the complete text after the node
+returns; nothing is marked verified before that.
 Evidence is passed inside `<evidence id=... source=...>` tags; the prompt says evidence is data, not instructions.
 
 ## Memory, interrupts, streaming
@@ -108,8 +111,10 @@ Evidence is passed inside `<evidence id=... source=...>` tags; the prompt says e
 - **History window.** The planner and synthesizer receive the last `agent.history_turns` (default 6) user and assistant turns, trimmed with `langchain_core.messages.trim_messages` by turn count, plus `active_entities`. Tool and evidence messages from earlier turns are never replayed. The full history stays in the checkpoint for display. Add `history_turns: 6` under `agent:` in config/settings.yaml.
 - claim_dossier calls `interrupt(assessment_summary)` when `needs_human_review` and persona ≠ customer;
   the API resumes with `Command(resume=ReviewDecision(action="approve"|"override"|"request_info", note=str))`.
-- Stream modes `tasks` + `updates` (node start/end and tool events); the API maps them to SSE events (spec 09).
-  `messages` is unused: synthesize emits structured JSON, so there are no answer tokens to stream.
+- Stream modes `tasks` + `updates` (node start/end and tool events), `messages` filtered to the synthesize
+  node (answer tokens, through the draft gate: never a guarantee phrase or a `<think>` block, spec 09), and
+  `custom` (`tool_start` from the `@tool` wrapper). The API maps them to SSE events (spec 09). Template and
+  fast-path answers make no LLM call, so they emit no tokens.
 
 ## Trace (TraceEvent list, returned with every response)
 intents, entity resolution, each tool call (name, args without PII, duration, result size), SQL text,
@@ -128,6 +133,8 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 - [x] AC-06-09 Every response carries a trace with the fields above; token counts present for every LLM call. (SQL text arrives with run_analytics, M6; tools do not expose their SQL.)
 - [x] AC-06-11 Per-turn reset: in a two-turn thread, turn 2's evidence and trace contain only turn-2 items, and an answer citing a label that only turn 1 returned fails V1.
 - [x] AC-06-12 History window: after 10 prior turns, the planner and synthesizer prompts contain at most 6 turns (assert via a callback that captures message counts), and a follow-up still resolves through active_entities.
+- [x] AC-06-13 Synthesize returns plain markdown; citations are parsed from the labels; V1–V4 run on the full streamed text (an orphan number in the last chunk still fails V3).
+- [x] AC-06-14 The fast path, NOT_FOUND templates and other deterministic answers emit no `token` events.
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
 
 - [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.

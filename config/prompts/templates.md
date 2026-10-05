@@ -1,6 +1,6 @@
 ---
 id: templates
-version: 0.2.0
+version: 0.2.1
 ---
 ## claim_status_fast_path
 Claim {claim_id} is **{claim_status}**{approved_clause}. It was filed on {claim_date} for {claim_amount} under {product_name}. [claims:{claim_id}]
@@ -34,4 +34,4 @@ You asked about {count} things; I answered the first {max}. Ask again for the re
 Here is what the records show:
 
 ## clarification_policy
-Which policy do you mean? Give the policy ID (like POL218917).
+Which policy do you mean? Give the policy ID (like POL100001).

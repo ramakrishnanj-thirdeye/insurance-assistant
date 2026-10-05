@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import state
 import streamlit as st
+from status import load_status, tone_names
 from views import thread_label
 
 from insurai.api.client import ApiProblem, Identity
@@ -27,6 +28,9 @@ def _identity_picker() -> Identity:
             key="principal",
             format_func=lambda c: f"{c} · {hints[c]}" if hints.get(c) else c,
         )
+    if persona != "customer":  # customers always get the professional tone (spec 10)
+        st.session_state.setdefault("tone", load_status().default_tone)
+        st.radio("Status tone", tone_names(), key="tone", horizontal=True)
     ident = Identity(persona=persona, principal_id=principal)
     st.query_params["persona"] = persona
     if principal:

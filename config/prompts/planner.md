@@ -1,6 +1,6 @@
 ---
 id: planner
-version: 0.3.0
+version: 0.3.1
 role: generator
 output: Plan (JSON, see specs/06-agent-graph.md)
 ---
@@ -9,7 +9,7 @@ You decide which intents the user's message contains and which entities each int
 
 Intents:
 - claim_status: current status or decision of a specific claim
-- claim_documents: which documents are missing, pending, rejected or verified for a claim
+- claim_documents: a claim's document checklist (missing, pending, rejected or verified items)
 - claim_interactions: past contacts about a claim (channel, intent, sentiment, escalations)
 - claim_analysis: analyse, summarise, assess or explain a claim ("why pending", "why rejected", "is it covered")
 - policy_details: one specific policy's schedule (recorded and effective status, in force or not, sum insured,

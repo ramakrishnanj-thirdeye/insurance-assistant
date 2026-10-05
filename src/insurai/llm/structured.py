@@ -1,5 +1,10 @@
-"""Structured LLM calls with one validation retry, token accounting and an Ollama context-window guard."""
+"""LLM calls with token accounting and an Ollama context-window guard.
 
+`structured_call` validates against a schema with one retry (planner); `text_call` returns plain markdown
+(synthesize), which LangGraph streams token by token when the graph runs with stream mode `messages`.
+"""
+
+import re
 import time
 from typing import Any
 
@@ -85,6 +90,39 @@ def structured_call[T: BaseModel](
         ]
     log.error("prompt %s failed validation twice; giving up", prompt_id)
     raise StructuredOutputError(f"{prompt_id}: output failed {schema.__name__} validation twice")
+
+
+THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|\Z)", re.DOTALL)
+
+
+def text_call(
+    role: Role,
+    messages: list[BaseMessage],
+    prompt_id: str,
+    prompt_version: str,
+    config: RunnableConfig | None = None,
+) -> tuple[str, LLMCall]:
+    """Call the role model for plain text; a stray `<think>` block is removed from the returned text."""
+    model = get_model(role)
+    cfg: RunnableConfig = {**(config or {}), "tags": [*(config or {}).get("tags", []), f"prompt:{prompt_id}"]}
+    start = time.perf_counter()
+    raw = model.invoke(messages, config=cfg)
+    usage = getattr(raw, "usage_metadata", None)
+    tokens_in = int(usage.get("input_tokens", 0)) if usage else None
+    call = LLMCall(
+        role=role,
+        model=_model_name(model),
+        prompt_id=prompt_id,
+        prompt_version=prompt_version,
+        input_tokens=tokens_in,
+        output_tokens=int(usage.get("output_tokens", 0)) if usage else None,
+        latency_ms=round((time.perf_counter() - start) * 1000, 1),
+        attempts=1,
+        ctx_warning=ctx_warning(role, tokens_in),
+    )
+    if call.ctx_warning:
+        log.warning("prompt %s near num_ctx: %s", prompt_id, call.ctx_warning)
+    return THINK_BLOCK.sub("", str(raw.content)).strip(), call
 
 
 def ctx_warning(role: Role, input_tokens: int | None) -> dict[str, Any] | None:

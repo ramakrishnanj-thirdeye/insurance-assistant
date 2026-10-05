@@ -7,6 +7,7 @@ the same conversation under the same identity.
 from typing import Any
 
 import streamlit as st
+from status import select_tone
 
 from insurai.api.client import ApiClient, Identity
 
@@ -21,6 +22,11 @@ def api() -> ApiClient:
 
 def identity() -> Identity:
     return st.session_state["identity"]
+
+
+def tone() -> str:
+    """The status-line tone: the sidebar choice, always professional for the customer persona."""
+    return select_tone(identity().persona, st.session_state.get("tone"))
 
 
 def reset_conversation() -> None:

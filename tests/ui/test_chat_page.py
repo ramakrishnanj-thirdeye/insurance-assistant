@@ -212,3 +212,65 @@ def test_rejected_message_is_not_kept_and_error_is_shown() -> None:
     at.chat_input[0].set_value("hello").run()
     assert at.session_state["messages"] == []
     assert any("already running" in e.value for e in at.error)
+
+
+RETRY_TURN: list[Event] = [
+    ("node", {"name": "planner", "status": "start"}),
+    (
+        "node",
+        {
+            "name": "planner",
+            "status": "end",
+            "ms": 400.0,
+            "interrupted": False,
+            "plan": {
+                "intents": ["policy_question"],
+                "product": "Health Secure Plus",
+                "claim_ids": [],
+                "policy_ids": [],
+            },
+        },
+    ),
+    ("node", {"name": "synthesize", "status": "start"}),
+    ("token", {"text": "bad draft with ₹99,999 ", "attempt": 1}),
+    ("node", {"name": "synthesize", "status": "end", "ms": 900.0, "interrupted": False}),
+    ("node", {"name": "verify", "status": "end", "ms": 2.0, "interrupted": False, "outcome": "retry"}),
+    ("node", {"name": "synthesize", "status": "start"}),
+    ("token", {"text": "Maternity is covered after 24 months. ", "attempt": 2}),
+    ("token", {"text": "[Health Secure Plus §5 Maternity]", "attempt": 2}),
+    ("node", {"name": "synthesize", "status": "end", "ms": 800.0, "interrupted": False}),
+    ("node", {"name": "verify", "status": "end", "ms": 2.0, "interrupted": False, "outcome": "pass"}),
+]
+REVISED = "Maternity is covered after 24 months. [Health Secure Plus §5 Maternity]"
+
+
+def test_AC_10_08_failed_first_draft_is_replaced_and_answer_marked_verified() -> None:
+    fake = FakeApi()
+
+    def chat(message: str, thread_id: str | None, ident: Identity, source: str = "ui") -> Iterator[Event]:
+        yield "thread", {"thread_id": "t-new"}
+        yield from RETRY_TURN
+        yield "final", {"answer_markdown": REVISED, "citations": [], "trace": TRACE, "verified": True}
+        yield "done", {}
+
+    fake.chat = chat  # type: ignore[method-assign]
+    at = _app(fake)
+    at.chat_input[0].set_value("What is the maternity waiting period under Health Secure Plus?").run()
+    shown = _texts(at) + " ".join(c.value for c in at.caption)
+    assert REVISED in _texts(at) and "bad draft" not in shown
+    assert any(c.value == "✓ verified" for c in at.caption)
+    assert at.session_state["messages"][-1]["verified"] is True
+
+
+def test_AC_10_08_unverified_fallback_has_no_verified_badge() -> None:
+    at = _app(FakeApi())  # the default fake final carries no `verified`
+    at.chat_input[0].set_value("hello there").run()
+    assert "Answer to: hello there" in _texts(at)
+    assert not any(c.value == "✓ verified" for c in at.caption)
+
+
+def test_AC_10_09_tone_picker_hidden_for_customer() -> None:
+    at = _app(FakeApi())
+    assert [r.label for r in at.sidebar.radio] == ["Status tone"]
+    at.sidebar.selectbox(key="persona").set_value("customer").run()
+    assert not at.sidebar.radio

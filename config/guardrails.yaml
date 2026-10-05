@@ -43,6 +43,7 @@ no_guarantee:
     - '\b100% (covered|approved)\b'
     - '\bassure you\b'
   mandated_wording: "Final decision depends on complete claim assessment."   # policy wordings §15
+  stream_holdback_chars: 64       # streamed drafts lag this far behind so a promise is never half-sent; ≥ longest pattern match
 
 citation_format: '[{product} §{section_no} {section_name}]'      # e.g. [Health Secure Plus §5 Maternity]
 sql_citation_format: '[{table}:{key}]'                          # e.g. [claims:CLM300210]

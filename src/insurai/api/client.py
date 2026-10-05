@@ -128,7 +128,12 @@ class ApiClient:
 
 @dataclass
 class TurnView:
-    """What one streamed turn produced: a pure fold over its events, rendered by the UI."""
+    """What one streamed turn produced: a pure fold over its events, rendered by the UI.
+
+    Draft phases (spec 10): `drafting` while attempt 1 streams (badge "checking…"), `checking` once the
+    draft is complete or hidden, `revising` after verify asks for a retry (the next attempt replaces the
+    draft), then `verified` or `final` (fallback, refusal, interrupt or error) when the turn ends.
+    """
 
     thread_id: str | None = None
     progress: list[tuple[str, dict[str, Any]]] = field(default_factory=list)  # node and tool events
@@ -138,6 +143,11 @@ class TurnView:
     interrupt: dict[str, Any] | None = None
     error: str | None = None
     done: bool = False
+    draft_text: str = ""
+    draft_attempt: int = 0
+    hidden_attempt: int = 0
+    phase: str = "idle"  # idle | drafting | checking | revising | verified | final
+    verified: bool = False
 
     def apply(self, event: str, data: dict[str, Any]) -> None:
         match event:
@@ -145,13 +155,38 @@ class TurnView:
                 self.thread_id = data.get("thread_id")
             case "node" | "tool":
                 self.progress.append((event, data))
+                if event == "node" and data.get("status") == "end":
+                    self._node_end(data)
+            case "token":
+                self._token(str(data.get("text", "")), int(data.get("attempt", 1)))
+            case "draft_hidden":
+                self.hidden_attempt = int(data.get("attempt", self.draft_attempt))
+                self.draft_text, self.phase = "", "checking"
             case "final":
                 self.answer = data.get("answer_markdown", "")
                 self.citations = list(data.get("citations", []))
                 self.trace = list(data.get("trace", []))
+                self.verified = bool(data.get("verified"))
+                self.draft_text, self.phase = "", "verified" if self.verified else "final"
             case "interrupt":
                 self.interrupt = data.get("assessment_summary") or {}
+                self.draft_text, self.phase = "", "final"
             case "error":
                 self.error = data.get("message") or data.get("code") or "The turn failed."
+                self.draft_text, self.phase = "", "final"
             case "done":
                 self.done = True
+
+    def _token(self, text: str, attempt: int) -> None:
+        if attempt <= self.hidden_attempt:
+            return  # the server hid this attempt; nothing more of it may show
+        if attempt != self.draft_attempt:
+            self.draft_text, self.draft_attempt = "", attempt
+        self.draft_text += text
+        self.phase = "drafting" if attempt == 1 else "revising"
+
+    def _node_end(self, data: dict[str, Any]) -> None:
+        if data.get("name") == "synthesize" and self.phase in ("drafting", "revising"):
+            self.phase = "checking"
+        elif data.get("name") == "verify" and data.get("outcome") == "retry":
+            self.draft_text, self.phase = "", "revising"

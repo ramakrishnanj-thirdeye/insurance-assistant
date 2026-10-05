@@ -1,4 +1,5 @@
-"""Chat page (spec 10): streamed answers with node progress, Trace expander, review card on interrupt."""
+"""Chat page (spec 10): status line, streamed draft (muted, "checking…") replaced by the verified answer,
+node progress, Trace expander, review card on interrupt."""
 
 import time
 from collections.abc import Iterator
@@ -6,6 +7,7 @@ from typing import Any
 
 import state
 import streamlit as st
+from status import badge, status_line
 from trace_panel import render_trace
 from views import WAIT_CAPTION, progress_line
 
@@ -40,6 +42,8 @@ def _history() -> None:
     for i, m in enumerate(state.messages()):
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
+            if m.get("verified") and (mark := badge("verified", state.tone())):
+                st.caption(mark)
             if m.get("progress"):
                 with st.expander(f"Steps · {m['elapsed_s']:.1f} s"):
                     st.markdown("  \n".join(m["progress"]))
@@ -48,18 +52,23 @@ def _history() -> None:
 
 
 def _stream(events: Iterator[Event], label: str) -> tuple[TurnView, float]:
-    """Show node and tool events while the answer is prepared; fold them into a TurnView."""
+    """Status line, then the draft as it streams; fold every event into a TurnView."""
     view = TurnView()
+    tone = state.tone()
     wait = st.caption(WAIT_CAPTION)
+    status_slot, badge_slot, answer_slot = st.empty(), st.empty(), st.empty()
     started = time.perf_counter()
-    with st.status(label, expanded=True) as status:
+    with st.status(label, expanded=False) as status:
         try:
             for event, data in events:
                 view.apply(event, data)
+                if line := status_line(event, data, tone):
+                    status_slot.caption(line)
                 if event in ("node", "tool"):
                     st.write(progress_line(event, data))
                 elif event == "thread" and view.thread_id:
                     state.set_thread(view.thread_id)
+                _show_draft(view, tone, badge_slot, answer_slot)
         except ApiProblem as exc:
             view.error = exc.detail
             if exc.code == "REVIEW_PENDING" and isinstance(exc.extra.get("review"), dict):
@@ -72,7 +81,23 @@ def _stream(events: Iterator[Event], label: str) -> tuple[TurnView, float]:
         else:
             status.update(label=f"Answered in {secs:.1f} s", state="complete", expanded=False)
     wait.empty()
+    status_slot.empty()
     return view, secs
+
+
+def _show_draft(view: TurnView, tone: str, badge_slot: Any, answer_slot: Any) -> None:
+    """Muted draft with "checking…"; "revising…" with the new attempt; the answer once final."""
+    mark = badge(view.phase, tone)
+    if mark:
+        badge_slot.caption(mark)
+    else:
+        badge_slot.empty()
+    if view.answer is not None:
+        answer_slot.markdown(view.answer)
+    elif view.draft_text:
+        answer_slot.caption(view.draft_text)
+    else:
+        answer_slot.empty()
 
 
 def _apply(view: TurnView, elapsed_s: float) -> None:
@@ -84,6 +109,7 @@ def _apply(view: TurnView, elapsed_s: float) -> None:
                 "content": view.answer,
                 "trace": view.trace,
                 "citations": view.citations,
+                "verified": view.verified,
                 "progress": [progress_line(e, d) for e, d in view.progress],
                 "elapsed_s": elapsed_s,
             }

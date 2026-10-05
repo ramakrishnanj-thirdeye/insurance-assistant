@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from insurai import db
 from insurai.observability import get_logger
+from insurai.observability.progress import emit_progress, status_args
 from insurai.observability.tracing import tool_span
 from insurai.tools import access
 from insurai.tools.schemas import ToolContext
@@ -37,6 +38,7 @@ def tool[**P, R: BaseModel](fn: Callable[P, R]) -> Callable[P, R]:
             "insurai.trace_id": ctx.trace_id,
             "insurai.persona": ctx.persona,
         }
+        emit_progress("tool_start", {"name": name, "args_redacted": status_args(safe_args)})
         with tool_span(name, attributes) as span:
             start = time.perf_counter()
             result = fn(*args, **kwargs) if access.tool_allowed(ctx, name) else access.denied()

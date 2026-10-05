@@ -1,5 +1,7 @@
 """synthesize (spec 06): answer from evidence only. Deterministic templates when no judgment is needed
-(fast path, all-not-found, abstain); otherwise one structured generator call with synthesize.md.
+(fast path, all-not-found, abstain); otherwise one plain-markdown generator call with synthesize.md,
+streamed to the client (spec 09 `token`). Citations are the labels found in the text; verify checks the
+complete text after the node returns.
 """
 
 import html
@@ -15,8 +17,8 @@ from insurai.agent.schemas import AnswerDraft, Evidence
 from insurai.agent.state import AgentState
 from insurai.agent.trace import llm_events, now_ms
 from insurai.formatting import inr
-from insurai.guardrails.verify import NO_RESULT_KINDS
-from insurai.llm.structured import StructuredOutputError, structured_call
+from insurai.guardrails.verify import NO_RESULT_KINDS, labels_in
+from insurai.llm.structured import text_call
 from insurai.settings import get_settings
 from insurai.tools.messages import refusal
 
@@ -31,11 +33,11 @@ def synthesize(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     messages = synth_messages(state, question, evidence, feedback)
     prompt = load_prompt("synthesize")
     start = now_ms()
-    try:
-        draft, call = structured_call("generator", AnswerDraft, messages, prompt.id, prompt.version, config)
-    except StructuredOutputError:
-        return {"draft": abstain_draft(evidence)}
-    return {"draft": draft, "trace": llm_events(call, turn, start)}
+    text, call = text_call("generator", messages, prompt.id, prompt.version, config)
+    trace = llm_events(call, turn, start)
+    if not text:
+        return {"draft": abstain_draft(evidence), "trace": trace}
+    return {"draft": AnswerDraft(answer_markdown=text, citations=labels_in(text)), "trace": trace}
 
 
 def synth_messages(

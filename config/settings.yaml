@@ -63,6 +63,7 @@ agent:
   tool_transport: inprocess      # inprocess | mcp (langchain-mcp-adapters to `make mcp`; spec 05; mcp deferred)
   history_turns: 6               # last N user+assistant turns sent to planner and synthesizer (spec 06)
   turn_timeout_s: 300            # a thread `running` longer than this is stale; a new request takes it over (spec 09)
+  heartbeat_s: 2.0               # while a node runs longer than this, SSE `heartbeat` every heartbeat_s (spec 09)
 
 api:
   host: 127.0.0.1

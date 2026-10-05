@@ -260,4 +260,4 @@ def test_policy_details_without_policy_but_with_product_becomes_policy_question(
     final = finalize_plan(plan, _ctx(message=question, resolved=Entities(product="Family Care Gold")))
     assert [(i.type, i.entities.product) for i in final.intents] == [("policy_question", "Family Care Gold")]
     no_product = finalize_plan(plan_of(("policy_details", {})), _ctx())
-    assert no_product.clarification == "Which policy do you mean? Give the policy ID (like POL218917)."
+    assert no_product.clarification == "Which policy do you mean? Give the policy ID (like POL100001)."

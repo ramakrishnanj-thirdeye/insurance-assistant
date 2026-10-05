@@ -92,6 +92,7 @@ class AgentSettings(_Section):
     tool_transport: Literal["inprocess", "mcp"] = "inprocess"
     history_turns: int = 6  # user+assistant turns the planner and synthesizer see (ADR-009)
     turn_timeout_s: float = 300  # a thread running longer than this is a stale lease (spec 09 Busy)
+    heartbeat_s: float = 2.0  # a node running longer than this gets a `heartbeat` SSE event this often
 
 
 class APISettings(_Section):
