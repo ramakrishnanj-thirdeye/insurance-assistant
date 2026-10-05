@@ -86,9 +86,23 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Issue: Chat page leftovers for M8: Claim Dossier, Coverage Matrix, Leakage Radar and Eval Dashboard pages; citation chips with clause expanders; Altair charts for analytics; full AC-10-02 trace fields; blockers and next actions on the review card (need spec 07)
 - [ ] `make demo-check`; rehearse the run-of-show
 - [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3)
-- [ ] Demo machine: Best performance power mode, plugged in, powercfg throttling exemption for Python.
 - [x] Thread list, rename and delete endpoints (spec 09, 2026-10-05)
 - [x] Conversations sidebar (spec 10, 2026-10-06)
+
+### M8 polish list
+- [ ] Greeting fast path: deterministic answers to hello and thanks, with no LLM call
+- [ ] UI: show `answered_by: "draft"` as "template (no LLM)"
+- [ ] Client-friendly trace view with plain labels; keep the raw JSON in an "engineer details" expander
+- [ ] Named verifier checks, with the detail shown on failure: V1 Citations are real, V2 Facts are cited, V3 Numbers traced to data, V4 No promises
+- [ ] Project `.streamlit/config.toml` that skips the first-run email prompt and turns off usage stats (`browser.gatherUsageStats = false`)
+- [ ] Demo-machine checklist:
+  - Run the API without `--reload`
+  - Ollama `keep_alive` set, plus a warm-up request before the demo
+  - Check the GPU/CPU split (`ollama ps`) at `num_ctx` 8192
+  - Windows power mode Best performance, laptop plugged in
+  - `powercfg` power-throttling exemptions for Python and Ollama
+  - Port 8000 cleanup if a stale API holds it: `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`, then `Stop-Process -Id <pid>` (Git Bash: `netstat -ano | findstr :8000`, then `taskkill /PID <pid> /F`)
+
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 
 ## Open decisions (defaults applied; change here if the business decides otherwise)
