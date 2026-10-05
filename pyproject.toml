@@ -55,6 +55,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["ui"]                   # Streamlit modules import each other flat (spec 10)
 addopts = "--strict-markers"
 asyncio_mode = "auto"                 # async tests (spec 09 thread store, API) need no marker
 markers = [

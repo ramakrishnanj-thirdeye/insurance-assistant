@@ -69,6 +69,22 @@ api:
   port: 8000
   cors_origins: ["http://localhost:8501", "http://127.0.0.1:8501"]   # Streamlit (make ui)
 
+ui:                              # Streamlit (spec 10); talks only to the API, never to DuckDB
+  api_url: http://127.0.0.1:8000
+  # Customer principal picker. CUST139920 owns CLM300210 (Approved; the run-of-show claim). The other nine are
+  # the lowest customer IDs with an open claim, three per open status (picked once from silver.claims, 2026-10-06).
+  sample_customers:
+    - {customer_id: CUST139920, hint: "CLM300210 · Approved"}
+    - {customer_id: CUST100000, hint: "CLM327142 · Under Review"}
+    - {customer_id: CUST100002, hint: "CLM396464 · Under Review"}
+    - {customer_id: CUST100006, hint: "CLM317691 · Under Review"}
+    - {customer_id: CUST100010, hint: "CLM380932 · Submitted"}
+    - {customer_id: CUST100025, hint: "CLM360450 · Submitted"}
+    - {customer_id: CUST100035, hint: "CLM328671 · Submitted"}
+    - {customer_id: CUST100003, hint: "CLM343257 · Pending Documents"}
+    - {customer_id: CUST100009, hint: "CLM371810 · Pending Documents"}
+    - {customer_id: CUST100011, hint: "CLM353139 · Pending Documents"}
+
 mcp:
   http_host: 127.0.0.1
   http_port: 8765

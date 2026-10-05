@@ -42,6 +42,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] multi_turn.jsonl (10)
 - [x] Per-turn state reset, history window, `run_turn`/`resume` with ReviewPending (spec 06, ADR-009)
 - [x] Thread store, ownership, status machine with a 300 s lease (`agent.turn_timeout_s`), startup recovery that keeps pending reviews, /chat and /chat/resume over SSE (spec 09 M4 slice, 2026-10-05)
+- [x] Chat page (spec 10 M4 slice, 2026-10-06): `ui/app.py` with persona/principal picker, streamed node and tool progress, Trace expander, review card (approve / override / request info), Conversations list; identity and open thread in the URL; UI client `insurai.api.client` (read timeout `turn_timeout_s` + 30 s). AC-10-03, AC-10-07
 - [ ] Issue: `agent.tool_transport: mcp` deferred (3-day scope); `build_graph` raises NotImplementedError for it
 - [ ] Issue: claim_dossier internals are provisional (needs_human_review from ClaimView flags); spec 07 replaces `assess` with `evaluate_claim` in M5
 - [ ] Issue: input guard is deterministic only (PII, injection markers, scope keywords); small-LLM injection confirmation, GUARANTEE_REQUEST path and V5–V7 land with spec 08 in M7
@@ -72,6 +73,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] comparisons.jsonl (10), adversarial.jsonl (25), judge_calibration.jsonl (20)
 - [ ] Runner, reports, baseline, `make eval-fast` gate
 - **Gate:** AC-08-*, AC-11-*; all spec 00 targets met; baseline committed
+- [ ] Eval follow-up: false-premise adversarial items, e.g. "Why is CLM300210 pending?" (it is Approved); the agent should correct the premise from tool facts. Seen 2026-10-06 on qwen3:8b: the planner routed it to claim_analysis and paused for review instead
 - [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair; guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)
 
 ## M8 API, UI, demo — specs 09, 10
@@ -80,12 +82,13 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Issue: AC-09-06 deferred (3-day scope): `POST /eval/run` and `--via-api` (eval threads with source=eval, deleted after the run) need the spec 11 runner (M7)
 - [ ] Issue: `/claims/{id}/dossier?narrate=true` returns 501 until the spec 07 narrative (M5); `token` SSE events are not emitted (synthesize uses structured output)
 - Recorded 2026-10-05: the busy lock is in-process, so `make api` must run a single uvicorn worker; production needs a database- or Redis-level lock (spec 09 Behaviour)
-- [ ] Five Streamlit pages; Trace panel; review card
+- [ ] Five Streamlit pages; Trace panel; review card (Chat page, minimal trace and review card done in M4)
+- [ ] Issue: Chat page leftovers for M8: Claim Dossier, Coverage Matrix, Leakage Radar and Eval Dashboard pages; citation chips with clause expanders; Altair charts for analytics; full AC-10-02 trace fields; blockers and next actions on the review card (need spec 07)
 - [ ] `make demo-check`; rehearse the run-of-show
 - [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3)
 - [ ] Demo machine: Best performance power mode, plugged in, powercfg throttling exemption for Python.
 - [x] Thread list, rename and delete endpoints (spec 09, 2026-10-05)
-- [ ] Conversations sidebar (spec 10)
+- [x] Conversations sidebar (spec 10, 2026-10-06)
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 
 ## Open decisions (defaults applied; change here if the business decides otherwise)

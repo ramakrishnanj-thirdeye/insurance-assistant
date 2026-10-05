@@ -100,6 +100,16 @@ class APISettings(_Section):
     cors_origins: list[str] = Field(default_factory=list)  # the Streamlit origin (spec 09 Behaviour)
 
 
+class SampleCustomer(_Section):
+    customer_id: str
+    hint: str = ""
+
+
+class UISettings(_Section):
+    api_url: str = "http://127.0.0.1:8000"
+    sample_customers: list[SampleCustomer] = Field(default_factory=list)  # principal picker (spec 10)
+
+
 class MCPSettings(_Section):
     http_host: str
     http_port: int
@@ -136,6 +146,7 @@ class Settings(BaseSettings):
     agent: AgentSettings
     api: APISettings
     mcp: MCPSettings
+    ui: UISettings = Field(default_factory=UISettings)
     tracing: TracingSettings
     eval: EvalSettings = Field(default_factory=EvalSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
