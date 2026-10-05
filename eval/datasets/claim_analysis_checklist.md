@@ -12,7 +12,7 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Missing: Discharge Summary; pending: Policy Copy; rejected: none
 - Consistency flags: C1; needs human review: True
 - Must mention: Cancelled, Discharge Summary
-- [ ] Signed off (name, date):
+- [x] Signed off (Ram, 2026-10-06)
 
 ## CA005 CLM300012: Schedule waiting period not met (R03 fail)
 
@@ -22,7 +22,7 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Missing: Claim Form, Diagnostic Report, Hospital Bill, Prescription; pending: none; rejected: none
 - Consistency flags: C1; needs human review: True
 - Must mention: waiting period, 730, Claim Form, Diagnostic Report
-- [ ] Signed off (name, date):
+- [x] Signed off (Ram, 2026-10-06)
 
 ## CA006 CLM300077: Maternity inside its 24-month wait (R04 fail)
 
@@ -32,7 +32,7 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Missing: Diagnostic Report, Discharge Summary; pending: Claim Form; rejected: none
 - Consistency flags: none; needs human review: True
 - Must mention: Maternity, 730, Diagnostic Report, Discharge Summary
-- [ ] Signed off (name, date):
+- [x] Signed off (Ram, 2026-10-06)
 
 ## CA007 CLM300054: Maternity paid on a product that excludes it (R05 fail + C1)
 
@@ -42,7 +42,7 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Missing: Claim Form, Hospital Bill; pending: none; rejected: none
 - Consistency flags: C1; needs human review: True
 - Must mention: Maternity, Senior Health Shield, not cover, Claim Form, Hospital Bill
-- [ ] Signed off (name, date):
+- [x] Signed off (Ram, 2026-10-06)
 
 ## CA008 CLM300050: Rejected required document (R07 fail)
 
@@ -52,7 +52,7 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Missing: Cancelled Cheque, Claim Form, Discharge Summary, Prescription; pending: Hospital Bill; rejected: Diagnostic Report
 - Consistency flags: none; needs human review: True
 - Must mention: rejected, Diagnostic Report, Cancelled Cheque
-- [ ] Signed off (name, date):
+- [x] Signed off (Ram, 2026-10-06)
 
 ## CA009 CLM300009: Escalation by fraud score (R10 fail)
 
@@ -62,7 +62,7 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Missing: Claim Form, Discharge Summary, Prescription; pending: none; rejected: none
 - Consistency flags: C1; needs human review: True
 - Must mention: fraud risk score, manual review queue, Claim Form, Discharge Summary
-- [ ] Signed off (name, date):
+- [x] Signed off (Ram, 2026-10-06)
 
 ## CA010 CLM300423: Control: fewest blocker fails in the data
 
@@ -71,5 +71,5 @@ tick the box and remove the `draft` tag from the item in claim_analysis.jsonl.
 - Failing or review rules: none
 - Missing: none; pending: none; rejected: none
 - Consistency flags: none; needs human review: False
-- Must mention: 
-- [ ] Signed off (name, date):
+- Must mention: Under Review (added at sign-off)
+- [x] Signed off (Ram, 2026-10-06)

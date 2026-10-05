@@ -91,9 +91,18 @@ def test_complete_narrative_puts_correction_first_and_appends_missing(warehouse_
 def test_complete_narrative_leaves_a_complete_text_alone(warehouse_ready: None) -> None:
     a = _assessment("CLM300101")
     body = "\n".join(
-        [f"- {r.message} [claims:CLM300101]" for r in a.rules if r.message] + a.next_best_actions
+        ["Claim CLM300101 is Approved. [claims:CLM300101]"]
+        + [f"- {r.message} [claims:CLM300101]" for r in a.rules if r.message]
+        + a.next_best_actions
     )
     assert complete_narrative(body, a) == body
+
+
+@pytest.mark.integration
+def test_complete_narrative_states_the_status_when_missing(warehouse_ready: None) -> None:
+    a = _assessment("CLM300423")  # the control claim: no findings, no actions
+    text = complete_narrative("Nothing stands out. [claims:CLM300423]", a)
+    assert text.startswith("Claim CLM300423 is Under Review [claims:CLM300423].")
 
 
 @pytest.mark.integration

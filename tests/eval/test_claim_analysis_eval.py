@@ -34,7 +34,7 @@ def test_slice_scores_rules_interrupts_mentions_and_judge(
     install(monkeypatch, {"Text": _narrator, "InventedFindings": lambda m: {"invented": [], "count": 0}})
     result = claim_analysis.run_slice()
     m = result["metrics"]
-    assert m["items"] == len(claim_analysis.load_items()) >= 10 and m["draft_items"] == 7
+    assert m["items"] == len(claim_analysis.load_items()) >= 10 and m["draft_items"] == 0
     assert (
         m["rule_status_exact"] == m["docs_exact"] == m["consistency_exact"] == m["needs_review_exact"] == 1.0
     )

@@ -1,6 +1,6 @@
 ---
 id: dossier_narrative
-version: 0.2.0
+version: 0.2.1
 role: generator
 output: markdown (streamed; citations are the labels in the assessment)
 ---
@@ -10,7 +10,8 @@ Reply with the narrative itself in markdown. No JSON, no preamble, no suggested 
 Order:
 1. If `premise_correction` is present, start with it, copied word for word.
 2. If `review` is present, state the reviewer's decision and note.
-3. The overall position in one sentence, using `counts`, ending with the claim's `label`.
+3. The claim's status (`facts.claim_status`) and the overall position in one sentence, using `counts`, ending
+   with the claim's `label`.
 4. Every item in `findings`, in the order given: copy its `message` exactly, then its `citation` label.
 5. If `untracked_documents` is not empty, say they are not tracked in the document records.
 6. The `next_best_actions` as a numbered list, copied exactly.

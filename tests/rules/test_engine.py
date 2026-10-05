@@ -168,8 +168,8 @@ def test_AC_07_02_demo_claims_match_seed_labels(warehouse_ready: None, item: dic
 
 @pytest.mark.integration
 @pytest.mark.parametrize("item", all_items(), ids=item_ids(all_items()))
-def test_AC_07_02_draft_items_match_independent_labels(warehouse_ready: None, item: dict[str, Any]) -> None:
-    """The draft items' labels come from insurai.eval.claim_labels (plain Python over silver.*)."""
+def test_AC_07_02_derived_items_match_independent_labels(warehouse_ready: None, item: dict[str, Any]) -> None:
+    """CA004-CA010 labels come from insurai.eval.claim_labels (plain Python over silver.*), signed off."""
     labels = item["labels"]
     a = _assessment(labels["claim_id"])
     assert {r.id: r.status for r in a.rules} == labels["expected_rules"]

@@ -132,11 +132,16 @@ def _norm(text: str) -> str:
 
 
 def complete_narrative(text: str, assessment: ClaimAssessment, correction: str | None = None) -> str:
-    """The completeness guard: the correction leads; any finding message or action the model left out is
-    appended verbatim with its citation, so every blocker is mentioned whatever the model wrote."""
+    """The completeness guard: the correction leads; the claim's status is stated (cited) when the model left
+    it out; any finding message or action the model left out is appended verbatim with its citation, so every
+    blocker is mentioned whatever the model wrote."""
     body = text.strip()
     if correction:
         body = body.replace(correction, "").strip()
+    status = assessment.facts.get("claim_status")
+    if status and str(status).casefold() not in f"{correction or ''} {body}".casefold():
+        label = sql_source("claims", assessment.claim_id).label
+        body = f"Claim {assessment.claim_id} is {status} {label}.\n\n{body}"
     seen = _norm(body)
     missing = [
         f"- {r.message} {citation_of(r, assessment)}"

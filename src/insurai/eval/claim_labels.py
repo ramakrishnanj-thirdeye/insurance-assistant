@@ -219,7 +219,7 @@ CONTROL = Pattern(
     "Control: fewest blocker fails in the data",
     "Give me a summary of claim {claim_id}.",
     lambda d: True,
-    _docs_mention,  # no findings: nothing a narrative must mention
+    lambda d: [d.row["claim_status"]],  # no findings: the narrative must still state the status
 )
 
 
