@@ -32,13 +32,19 @@ def get_model(role: Role) -> BaseChatModel:
 
 def _provider_kwargs(spec: RoleModel, settings: Settings) -> dict[str, Any]:
     llm = settings.llm
+    timeout = spec.request_timeout_s or llm.request_timeout_s
     if spec.provider == "anthropic":
-        kwargs: dict[str, Any] = {"max_tokens": llm.max_output_tokens, "timeout": llm.request_timeout_s}
+        kwargs: dict[str, Any] = {"max_tokens": llm.max_output_tokens, "timeout": timeout}
         if settings.anthropic_api_key is not None:
             kwargs["api_key"] = settings.anthropic_api_key
         return kwargs
-    return {
+    kwargs = {
         "num_predict": llm.max_output_tokens,
         "base_url": settings.ollama_base_url,
-        "client_kwargs": {"timeout": llm.request_timeout_s},
+        "client_kwargs": {"timeout": timeout},
     }
+    if spec.num_ctx is not None:
+        kwargs["num_ctx"] = spec.num_ctx
+    if spec.reasoning is not None:
+        kwargs["reasoning"] = spec.reasoning
+    return kwargs

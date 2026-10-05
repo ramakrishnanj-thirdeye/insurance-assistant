@@ -1,14 +1,16 @@
-"""Eval runner (spec 11). Deterministic slices so far: policy_clauses (retrieval) and sql_facts (tools).
+"""Eval runner (spec 11). Slices so far: policy_clauses (retrieval), sql_facts (tools), routing (planner,
+spec 06) and e2e_sql_facts (full graph, reported only).
 
-`--suite fast` runs every deterministic slice built so far; `--gate` fails when a metric is below its
-target in settings `eval.targets`. Routing, judged items and the baseline comparison arrive with spec 11 (M7).
+`--suite fast` runs every slice built so far; `--gate` fails when a metric is below its target in settings
+`eval.targets`. `--sample N` runs a seeded N-item subset of the routing slice (development smoke).
+Judged items and the baseline comparison arrive with spec 11 (M7).
 """
 
 import argparse
 from collections.abc import Callable
 from typing import Any
 
-from insurai.eval import sql_facts
+from insurai.eval import e2e_sql_facts, routing, sql_facts
 from insurai.eval.retrieval import CONFIGS, SLICE, load_policy_slice, run_ablation, run_config, write_report
 from insurai.observability import get_logger
 from insurai.retrieval import search
@@ -16,9 +18,11 @@ from insurai.settings import get_settings
 
 log = get_logger(__name__)
 
-SLICES: dict[str, Callable[[], dict[str, Any]]] = {
+SLICES: dict[str, Callable[..., dict[str, Any]]] = {
     SLICE: lambda: run_config(load_policy_slice(), CONFIGS["E"]),
     sql_facts.SLICE: sql_facts.run_slice,
+    routing.SLICE: routing.run_slice,
+    e2e_sql_facts.SLICE: e2e_sql_facts.run_slice,
 }
 
 
@@ -40,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--suite", choices=["fast", "full", "ablation"], required=True)
     parser.add_argument("--slice", dest="slice_name", choices=sorted(SLICES))
     parser.add_argument("--gate", action="store_true", help="exit 1 when a metric misses its target")
+    parser.add_argument("--sample", type=int, help="routing only: score a seeded subset of N items")
     args = parser.parse_args(argv)
 
     if args.suite == "ablation":
@@ -53,7 +58,9 @@ def main(argv: list[str] | None = None) -> int:
         log.error("suite %r is not built yet (spec 11, M7); use --suite fast or --slice", args.suite)
         return 2
 
-    results = {name: SLICES[name]() for name in names}
+    results = {
+        name: SLICES[name](sample=args.sample) if name == routing.SLICE else SLICES[name]() for name in names
+    }
     for name, result in results.items():
         log.info("%s: %s", name, result["metrics"])
     write_report(args.suite, {"slices": results})

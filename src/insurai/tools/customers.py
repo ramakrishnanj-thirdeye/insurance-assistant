@@ -77,3 +77,31 @@ def _summary(ctx: ToolContext, row: dict[str, Any]) -> CustomerSummary:
     return CustomerSummary.model_validate(
         {**access.visible(ctx, row), "sources": [sql_source("customers", row["customer_id"])]}
     )
+
+
+# Agent-side helpers (spec 06 product resolution and claim clarification). Not MCP tools: they read only
+# the principal's own rows, so they need no persona gate beyond the scope check.
+
+
+def own_products(ctx: ToolContext) -> list[str]:
+    """Products of the customer's in-force policies, else of all their policies; [] for unscoped personas."""
+    if not access.is_scoped(ctx) or ctx.principal_id is None:
+        return []
+    rows = fetch_all(
+        """SELECT product_name, bool_or(effective_status = 'In Force') AS in_force
+           FROM silver.policies WHERE customer_id = ? GROUP BY product_name ORDER BY product_name""",
+        [ctx.principal_id],
+    )
+    in_force = [r["product_name"] for r in rows if r["in_force"]]
+    return in_force or [r["product_name"] for r in rows]
+
+
+def own_claims(ctx: ToolContext, limit: int = 10) -> list[str]:
+    """The customer's claim IDs, newest first; [] for unscoped personas."""
+    if not access.is_scoped(ctx) or ctx.principal_id is None:
+        return []
+    rows = fetch_all(
+        "SELECT claim_id FROM silver.claims WHERE customer_id = ? ORDER BY claim_date DESC, claim_id LIMIT ?",
+        [ctx.principal_id, limit],
+    )
+    return [r["claim_id"] for r in rows]

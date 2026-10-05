@@ -24,6 +24,16 @@ injection_markers:                # case-insensitive substrings; a hit routes to
 scope:
   allowed: [insurance policies, policy coverage, claims, claim documents, hospitals and network, customer interactions, portfolio analytics]
   out_of_scope_examples: [medical diagnosis or treatment advice, legal advice, investment advice, general chit-chat beyond greetings, coding help]
+  out_of_scope_keywords:          # case-insensitive substrings refused before any LLM call; keep them narrow
+    - medical advice
+    - legal advice
+    - investment advice
+    - which medicine
+    - what dosage
+    - should i take
+    - write code
+    - python script
+    - stock tips
 
 no_guarantee:
   patterns:                       # output check; any hit triggers rewrite, then re-check

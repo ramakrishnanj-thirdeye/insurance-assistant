@@ -1,0 +1,113 @@
+"""synthesize (spec 06): answer from evidence only. Deterministic templates when no judgment is needed
+(fast path, all-not-found, abstain); otherwise one structured generator call with synthesize.md.
+"""
+
+import html
+import json
+from typing import Any
+
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+
+from insurai.agent.history import window
+from insurai.agent.prompts import load_prompt, template
+from insurai.agent.schemas import AnswerDraft, Evidence
+from insurai.agent.state import AgentState
+from insurai.agent.trace import llm_events, now_ms
+from insurai.formatting import inr
+from insurai.guardrails.verify import NO_RESULT_KINDS
+from insurai.llm.structured import StructuredOutputError, structured_call
+from insurai.settings import get_settings
+from insurai.tools.messages import refusal
+
+
+def synthesize(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    evidence = state.get("evidence", [])
+    turn = state.get("turn", 0)
+    if draft := deterministic_draft(state, evidence):
+        return {"draft": draft}
+    question = last_question(state)
+    feedback = state["verification"].feedback if state.get("verification") and state.get("attempts") else ""
+    messages = synth_messages(state, question, evidence, feedback)
+    prompt = load_prompt("synthesize")
+    start = now_ms()
+    try:
+        draft, call = structured_call("generator", AnswerDraft, messages, prompt.id, prompt.version, config)
+    except StructuredOutputError:
+        return {"draft": abstain_draft(evidence)}
+    return {"draft": draft, "trace": llm_events(call, turn, start)}
+
+
+def synth_messages(
+    state: AgentState, question: str, evidence: list[Evidence], feedback: str
+) -> list[BaseMessage]:
+    system = load_prompt("synthesize").render(
+        persona=state["persona"],
+        question=question,
+        evidence_blocks=evidence_blocks(evidence),
+        feedback=feedback,
+    )
+    history = window(state.get("messages", []), get_settings().agent.history_turns)
+    return [SystemMessage(system), *history, HumanMessage(question)]
+
+
+def evidence_blocks(evidence: list[Evidence]) -> str:
+    """`<evidence id=... source=...>` blocks; the payload is escaped so evidence cannot close the tag."""
+    blocks = []
+    for n, ev in enumerate(evidence, start=1):
+        labels = " ".join(s.label for s in ev.sources)
+        body = html.escape(json.dumps(ev.payload, ensure_ascii=False, default=str), quote=False)
+        blocks.append(
+            f'<evidence id="e{n}" source="{html.escape(labels)}" kind="{ev.kind}">\n'
+            f"summary: {html.escape(ev.summary, quote=False)}\n{body}\n</evidence>"
+        )
+    return "\n".join(blocks)
+
+
+def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDraft | None:
+    if evidence and all(ev.kind in NO_RESULT_KINDS for ev in evidence):
+        lines = list(dict.fromkeys(ev.summary for ev in evidence))
+        return AnswerDraft(answer_markdown="\n\n".join(lines))
+    if state.get("fast_path") and len(evidence) == 1 and evidence[0].kind == "ClaimView":
+        return fast_path_draft(evidence[0])
+    if evidence and all(_unanswered_unfiltered(ev) for ev in evidence):
+        return abstain_draft(evidence)  # routing rule 2: no product and no confident clause anywhere
+    return None
+
+
+def _unanswered_unfiltered(ev: Evidence) -> bool:
+    return ev.kind == "RetrievalResult" and ev.payload.get("unfiltered") and not ev.payload.get("confident")
+
+
+def fast_path_draft(ev: Evidence) -> AnswerDraft:
+    p = ev.payload
+    approved = p.get("approved_amount") or 0
+    text = template(
+        "claim_status_fast_path",
+        claim_id=p["claim_id"],
+        claim_status=p["claim_status"],
+        approved_clause=f", with {inr(approved)} approved" if approved > 0 else "",
+        claim_date=p["claim_date"],
+        claim_amount=inr(p["claim_amount"]),
+        product_name=p["product_name"],
+    )
+    return AnswerDraft(answer_markdown=text, citations=[f"[claims:{p['claim_id']}]"])
+
+
+def abstain_draft(evidence: list[Evidence]) -> AnswerDraft:
+    """LOW_CONFIDENCE wording plus each evidence summary with its first citation (spec 08 abstain)."""
+    lines = [refusal("LOW_CONFIDENCE"), "", template("abstain_heading")]
+    cited: list[str] = []
+    for ev in evidence:
+        label = ev.sources[0].label if ev.sources else ""
+        if label:
+            cited.append(label)
+        lines.append(f"- {ev.summary} {label}".rstrip())
+    return AnswerDraft(answer_markdown="\n".join(lines), citations=list(dict.fromkeys(cited)))
+
+
+def last_question(state: AgentState) -> str:
+    for message in reversed(state.get("messages", [])):
+        if isinstance(message, HumanMessage):
+            return str(message.content)
+    return ""

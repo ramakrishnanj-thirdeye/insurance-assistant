@@ -1,0 +1,105 @@
+"""Deterministic entity resolution (spec 06 resolve_context): regex IDs, product gazetteer, follow-ups,
+and the fast-path test. No LLM.
+"""
+
+import re
+from functools import lru_cache
+from typing import Any
+
+import yaml
+from rapidfuzz import fuzz
+
+from insurai.agent.schemas import Entities, Intent, Plan
+from insurai.retrieval.glossary import GLOSSARY_FILE
+from insurai.tools.ids import PATTERNS
+
+FUZZY_MIN = 90  # config/glossary.yaml: aliases match case-insensitively, then rapidfuzz >= 90
+_ID_FIELDS = {
+    "claim": "claim_id",
+    "policy": "policy_id",
+    "customer": "customer_id",
+    "hospital": "hospital_id",
+}
+
+
+@lru_cache(maxsize=1)
+def _glossary() -> dict[str, Any]:
+    return yaml.safe_load(GLOSSARY_FILE.read_text(encoding="utf-8"))
+
+
+def product_names() -> list[str]:
+    return list(_glossary()["products"])
+
+
+def _word_re(phrase: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", re.IGNORECASE)
+
+
+def find_ids(text: str) -> dict[str, list[str]]:
+    """Every well-formed ID in the text, by entity field, in order of appearance (deduplicated)."""
+    found: dict[str, list[str]] = {}
+    for kind, pattern in PATTERNS.items():
+        ids = re.findall(rf"\b{pattern.pattern}\b", text)
+        if ids:
+            found[_ID_FIELDS[kind]] = list(dict.fromkeys(ids))
+    return found
+
+
+def match_product(text: str) -> str | None:
+    """Canonical product named in the text: exact name or alias first, then fuzzy name match ≥ 90."""
+    products: dict[str, list[str]] = _glossary()["products"]
+    for canonical, aliases in products.items():
+        if any(_word_re(term).search(text) for term in (canonical, *aliases)):
+            return canonical
+    lowered = text.lower()
+    best, score = None, 0.0
+    for canonical in products:
+        s = fuzz.partial_ratio(canonical.lower(), lowered)
+        if s > score:
+            best, score = canonical, s
+    return best if score >= FUZZY_MIN else None
+
+
+def canonical_product(name: str | None) -> str | None:
+    """Map a planner-supplied product name to its canonical form; None when it is not a known product."""
+    if not name:
+        return None
+    for canonical in product_names():
+        if canonical.lower() == name.strip().lower():
+            return canonical
+    return match_product(name)
+
+
+def resolve_entities(text: str) -> Entities:
+    """Entities stated in this message: the first ID of each kind and a product."""
+    ids = find_ids(text)
+    return Entities(**{field: values[0] for field, values in ids.items()}, product=match_product(text))
+
+
+def is_follow_up(text: str) -> bool:
+    return any(_word_re(p).search(text) for p in _glossary()["follow_up_phrases"])
+
+
+def is_fast_path(text: str) -> bool:
+    """Routing rule 1: exactly one claim ID, a status keyword, ≤ max_words words, no other intent keyword."""
+    cfg = _glossary()["fast_path"]
+    if len(find_ids(text).get("claim_id", [])) != 1 or len(re.findall(r"\bCLM\d+", text)) != 1:
+        return False
+    if len(text.split()) > cfg["max_words"]:
+        return False
+    lowered = text.lower()
+    if not any(_word_re(k).search(lowered) for k in cfg["status_keywords"]):
+        return False
+    return not any(k in lowered for k in cfg["other_intent_keywords"] if " " in k) and not any(
+        re.search(rf"(?<!\w){re.escape(k)}", lowered) for k in cfg["other_intent_keywords"] if " " not in k
+    )
+
+
+def fast_path_plan(text: str, claim_id: str) -> Plan:
+    return Plan(
+        intents=[
+            Intent(
+                id="i1", type="claim_status", entities=Entities(claim_id=claim_id), sub_question=text.strip()
+            )
+        ]
+    )

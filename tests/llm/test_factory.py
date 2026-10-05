@@ -59,3 +59,20 @@ def test_M0_unknown_profile_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("INSURAI__LLM__PROFILE", "gpu-cluster")
     with pytest.raises(ValueError, match="Unknown LLM profile"):
         get_model("generator")
+
+
+def test_local_profile_sets_num_ctx_reasoning_off_and_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", "local")
+    for role in ROLES:
+        model = get_model(role)  # type: ignore[arg-type]
+        assert isinstance(model, ChatOllama)
+        assert model.num_ctx == 8192
+        assert model.reasoning is False
+        assert model.client_kwargs == {"timeout": 180.0}
+
+
+def test_api_profile_keeps_global_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    model = get_model("generator")
+    assert isinstance(model, ChatAnthropic)
+    assert model.default_request_timeout == get_settings().llm.request_timeout_s

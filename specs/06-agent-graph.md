@@ -70,6 +70,13 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 ## Routing rules
 1. **Fast path**: message matches `\bCLM\d{6}\b` exactly once, contains a status keyword (status, state, where is, update), has ≤ 12 words, and no other intent keyword → Plan with one claim_status intent, no LLM call. Answer from a template (`config/prompts/templates.md`), still verified.
 2. **Product resolution** for policy_question: explicit product → use it; else active_entities.product (set whenever a claim or policy is resolved: claim → policy → product); else customer persona with exactly one in-force product → that product; several → clarification listing them; agent persona with nothing → clarification "Which product?". Generic questions that apply to all products (e.g. "can approval be guaranteed?") need no product: the planner marks them `policy_type=None, product=None` and retrieval runs unfiltered; common chunks answer them.
+   Before asking, one unfiltered `search_policy` probe decides (decided 2026-10-05): a confident top hit on a common
+   (ALL) chunk → run unfiltered, common chunks answer; a confident product-specific top hit → clarification "Which
+   product?" (AC-06-06); no confident hit anywhere → no clarification, run unfiltered and answer with the abstention
+   template (LOW_CONFIDENCE plus the closest clauses, cited), without an LLM synthesis.
+   A claim intent with no claim anywhere (message or active_entities), or a policy_details intent with no policy or
+   claim anywhere, but a named product is a question about the wording → policy_question for that product; with no
+   product either → clarification "Which claim?" / "Which policy?".
 3. **Follow-ups**: "it", "this claim", "its documents", "that policy" resolve to active_entities; a new ID replaces the active one.
 4. **Greeting** → short template, no tools. **out_of_scope** → OUT_OF_SCOPE refusal.
 5. **Schedule vs wording**: policy_details is one policy's schedule from get_policy (recorded status, effective status,
@@ -77,6 +84,9 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
    needs both ("what is my waiting period?" with a policy in context), the planner emits both intents so the answer
    shows schedule and wording side by side under the spec 08 conflict rule.
 6. Max 4 intents per message (settings.agent.max_parallel_workers); extra intents → answer the first 4 and say so.
+7. **Counts vs one entity** (decided 2026-10-05): counts, rates, totals and trends across many records are analytics;
+   a question about one specific customer, policy or claim named by ID uses that entity's intent (customer_summary,
+   policy_details, claim_documents), even when it asks for a number ("how many open claims does CUST… have?").
 
 ## Prompts (versioned files, IDs logged in trace)
 `config/prompts/planner.md` (15+ few-shot examples covering every intent, multi-intent and clarification),
@@ -106,18 +116,20 @@ retrieved chunks (label, fused rank, rerank score, via), rule results, verifier 
 versions, LLM calls (role, model, input/output tokens, latency), total latency.
 
 ## Acceptance criteria
-- [ ] AC-06-01 Graph compiles; `draw_mermaid()` output saved to `specs/reference/agent_graph.mmd` and matches the node table.
-- [ ] AC-06-02 Routing over the full golden set: intent set accuracy ≥ 95%, entity exact match ≥ 98%.
-- [ ] AC-06-03 "Status of CLM300500 and is drunk driving covered under Motor Protect Comprehensive?" → 2 intents; the trace shows overlapping worker spans.
-- [ ] AC-06-04 Turn 1 "Analyze CLM300210", turn 2 "which documents are missing?" → turn 2 resolves CLM300210.
-- [ ] AC-06-05 "status of CLM300210" makes zero LLM calls except the verifier's deterministic checks (callback counter = 0).
-- [ ] AC-06-06 Agent persona, no context, "what is the waiting period?" → clarification asking for the product.
-- [ ] AC-06-07 Agent persona "Analyze claim CLM300210" → interrupt; resume approve with note → final answer states the reviewer decision and note. Customer persona (owner CUST139920) → no interrupt; answer says a specialist will review.
-- [ ] AC-06-08 "Status of CLM999999" → NOT_FOUND wording, no invented details (verifier passes with zero numbers other than the ID).
-- [ ] AC-06-09 Every response carries a trace with the fields above; token counts present for every LLM call.
-- [ ] AC-06-11 Per-turn reset: in a two-turn thread, turn 2's evidence and trace contain only turn-2 items, and an answer citing a label that only turn 1 returned fails V1.
-- [ ] AC-06-12 History window: after 10 prior turns, the planner and synthesizer prompts contain at most 6 turns (assert via a callback that captures message counts), and a follow-up still resolves through active_entities.
-- [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker).
+- [x] AC-06-01 Graph compiles; `draw_mermaid()` output saved to `specs/reference/agent_graph.mmd` and matches the node table.
+- [ ] AC-06-02 Routing over the full golden set: intent set accuracy ≥ 95%, entity exact match ≥ 98%. Measured 2026-10-05 on local qwen3:8b, 68 items, planner.md v0.3.0 (few-shots free of golden IDs and phrasing): intent 0.8971, entity 0.9853. Entity target met; intent below target, all 7 misses are model misses (tasks.md M4).
+- [x] AC-06-03 "Status of CLM300500 and is drunk driving covered under Motor Protect Comprehensive?" → 2 intents; the trace shows overlapping worker spans.
+- [x] AC-06-04 Turn 1 "Analyze CLM300210", turn 2 "which documents are missing?" → turn 2 resolves CLM300210.
+- [x] AC-06-05 "status of CLM300210" makes zero LLM calls except the verifier's deterministic checks (callback counter = 0).
+- [x] AC-06-06 Agent persona, no context, "what is the waiting period?" → clarification asking for the product.
+- [x] AC-06-07 Agent persona "Analyze claim CLM300210" → interrupt; resume approve with note → final answer states the reviewer decision and note. Customer persona (owner CUST139920) → no interrupt; answer says a specialist will review. (Dossier internals provisional until spec 07, M5.)
+- [x] AC-06-08 "Status of CLM999999" → NOT_FOUND wording, no invented details (verifier passes with zero numbers other than the ID).
+- [x] AC-06-09 Every response carries a trace with the fields above; token counts present for every LLM call. (SQL text arrives with run_analytics, M6; tools do not expose their SQL.)
+- [x] AC-06-11 Per-turn reset: in a two-turn thread, turn 2's evidence and trace contain only turn-2 items, and an answer citing a label that only turn 1 returned fails V1.
+- [x] AC-06-12 History window: after 10 prior turns, the planner and synthesizer prompts contain at most 6 turns (assert via a callback that captures message counts), and a follow-up still resolves through active_entities.
+- [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
+
+- [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.
 
 ## Eval hooks
 Routing metrics on every slice; multi_turn slice.

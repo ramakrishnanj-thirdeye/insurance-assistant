@@ -48,6 +48,9 @@ class RoleModel(_Section):
     provider: Provider
     model: str
     temperature: float = 0.0
+    num_ctx: int | None = None  # Ollama context window; Ollama truncates silently past it
+    reasoning: bool | None = None  # Ollama thinking switch (False turns Qwen3 thinking off)
+    request_timeout_s: float | None = None  # overrides llm.request_timeout_s for this role
 
 
 class LLMSettings(_Section):
@@ -86,6 +89,7 @@ class AgentSettings(_Section):
     verifier_retries: int
     max_parallel_workers: int
     tool_transport: Literal["inprocess", "mcp"] = "inprocess"
+    history_turns: int = 6  # user+assistant turns the planner and synthesizer see (ADR-009)
 
 
 class APISettings(_Section):

@@ -37,11 +37,18 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - **Gate:** AC-05-* (AC-05-09 moved to M8); sql_facts 100%
 
 ## M4 Agent graph — spec 06 (+ minimal /chat and Chat page)
-- [ ] State, nodes, fast path, planner prompt with few-shots, Send fan-out, synthesize, verify stub (V1–V4)
-- [ ] Checkpointer, follow-ups, clarifications
-- [ ] `agent.tool_transport: mcp` binding through langchain-mcp-adapters (setting exists since spec 05)
-- [ ] multi_turn.jsonl (10)
-- [ ] Thread store, ownership, status machine, per-turn state reset, history window (specs 06 and 09, ADR-009)
+- [x] State, nodes, fast path, planner prompt with few-shots, Send fan-out, synthesize, verify V1–V4 (spec 06)
+- [x] Checkpointer (memory, sqlite, async sqlite; strict msgpack allowlist), follow-ups, clarifications
+- [x] multi_turn.jsonl (10)
+- [x] Per-turn state reset, history window, `run_turn`/`resume` with ReviewPending (spec 06, ADR-009)
+- [ ] Thread store, ownership, status machine, minimal /chat (spec 09 M4 slice; next pass)
+- [ ] Issue: `agent.tool_transport: mcp` deferred (3-day scope); `build_graph` raises NotImplementedError for it
+- [ ] Issue: claim_dossier internals are provisional (needs_human_review from ClaimView flags); spec 07 replaces `assess` with `evaluate_claim` in M5
+- [ ] Issue: input guard is deterministic only (PII, injection markers, scope keywords); small-LLM injection confirmation, GUARANTEE_REQUEST path and V5–V7 land with spec 08 in M7
+- [ ] Issue: AC-06-10 api-lite smoke skips until an ANTHROPIC_API_KEY exists (local passes)
+- [ ] Issue: AC-06-02 intent below target on qwen3:8b (2026-10-05, 68 items, planner.md v0.3.0): intent 0.8971, entity 0.9853 (target met). Decided: rule 7 (counts vs one entity) fixed SQL017/SQL018; rule 2 probe abstains when nothing is confident (EVAL032); claim/policy intents without an ID but with a product become policy_question (EVAL001/012/018/022/028/030). Remaining model misses: SQL010-012 (extra claim_documents on hospital-via-claim), EVAL021 (hospital_check for cashless repairs), EVAL034 (out_of_scope), MT003 (extra claim_analysis), MT006 (only policy_question for "my waiting period"). Earlier, higher scores relied on few-shots that copied golden IDs and phrasing; now guarded by tests/agent/test_prompt_hygiene.py. Re-measure on api-lite when a key exists
+- [ ] Issue: correctness gate needs the spec 11 judge; partial evidence: e2e_sql_facts gold_in_answer 1.0 (19/19 scored, 2026-10-05, local)
+- Recorded 2026-10-05: `make eval-fast` takes ~17 min on the local profile (routing ~11 min, e2e ~5 min). AC-11-04's 10-minute limit applies to api-lite; nothing to change
 - **Gate:** AC-06-*, AC-06-11, AC-06-12, AC-09-07 … AC-09-09, AC-09-12; routing ≥ 95%; correctness ≥ 90% on sql_facts + policy_clauses
 
 ## M5 Claim Dossier — spec 07

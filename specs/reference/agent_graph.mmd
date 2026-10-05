@@ -1,0 +1,40 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	input_guard(input_guard)
+	resolve_context(resolve_context)
+	planner(planner)
+	claim_tools(claim_tools)
+	policy_rag(policy_rag)
+	analytics_sql(analytics_sql)
+	claim_dossier(claim_dossier)
+	synthesize(synthesize)
+	verify(verify)
+	respond(respond)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> input_guard;
+	analytics_sql --> synthesize;
+	claim_dossier --> synthesize;
+	claim_tools --> synthesize;
+	input_guard -.-> resolve_context;
+	input_guard -.-> respond;
+	planner -.-> analytics_sql;
+	planner -.-> claim_dossier;
+	planner -.-> claim_tools;
+	planner -.-> policy_rag;
+	planner -.-> respond;
+	policy_rag --> synthesize;
+	resolve_context -.-> claim_tools;
+	resolve_context -.-> planner;
+	resolve_context -.-> respond;
+	synthesize --> verify;
+	verify -.-> respond;
+	verify -.-> synthesize;
+	respond --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

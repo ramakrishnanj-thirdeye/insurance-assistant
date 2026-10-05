@@ -14,6 +14,17 @@ products:
   Global Travel Secure:        [global travel, international travel]
   Student Travel Protect:      [student travel, study abroad]
 
+# Fast path (spec 06 routing rule 1): one claim ID, a status keyword, few words, no other intent keyword.
+fast_path:
+  max_words: 12
+  status_keywords: [status, state, where is, update]
+  other_intent_keywords: [document, missing, pending, interaction, called, contact, analy, why, reject, covered,
+                          cover, waiting, hospital, network, policy, customer, compare, approved amount, how much,
+                          guarantee, and]
+
+# Follow-up phrases that resolve to active_entities (spec 06 routing rule 3).
+follow_up_phrases: [it, its, this claim, that claim, the claim, this policy, that policy, the policy, my claim, my policy, same claim]  # whole words, case-insensitive
+
 # User phrase -> terms appended to the retrieval query. Bidirectional unless marked one_way.
 synonyms:
   - [drunk driving, intoxication, driving under influence, DUI]
