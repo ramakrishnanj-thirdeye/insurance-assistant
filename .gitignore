@@ -12,6 +12,8 @@ data/*.duckdb.wal
 data/qdrant/
 data/models/
 data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
 data/*.json
 data/coverage_draft.yaml
 eval/reports/*

@@ -71,6 +71,13 @@ def test_local_profile_sets_num_ctx_reasoning_off_and_timeout(monkeypatch: pytes
         assert model.client_kwargs == {"timeout": 180.0}
 
 
+def test_local_profile_sets_seed_for_reproducible_evals(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", "local")
+    for role in ROLES:
+        model = get_model(role)  # type: ignore[arg-type]
+        assert isinstance(model, ChatOllama) and model.seed == 42
+
+
 def test_api_profile_keeps_global_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     model = get_model("generator")

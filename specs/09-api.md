@@ -19,13 +19,14 @@ A thin, typed, streaming API over the graph and tools, so the UI is swappable an
 | GET | /audit/summary | persona must be supervisor | PortfolioReport counts by rule, flag, product |
 | GET | /audit/claims | ?flag=C1&product=&limit=50 | sample claims for drill-down |
 | POST | /eval/run | {suite: fast|full|ablation} | {run_id} (background task) |
-| GET | /eval/reports | — | list of runs with headline metrics |
-| GET | /eval/reports/{run_id} | — | full report JSON |
+| GET | /eval/reports | — (claims_agent, supervisor) | list of runs with headline metrics |
+| GET | /eval/reports/{run_id} | — (claims_agent, supervisor) | full report JSON |
 | GET | /health | — | {warehouse, qdrant, llm_profile, as_of, coverage_status, versions} |
 
 Identity travels as headers on every endpoint: `X-Persona` (required) and `X-Principal-Id` (required for
 customer; optional operator name for staff personas, default `staff`). PoC only; production maps SSO claims
-to the same two values.
+to the same two values. Exception: `/health` needs no identity. `/eval/reports*` allow only personas with
+`can_read_eval_reports` in config/personas.yaml (claims_agent, supervisor); a customer gets 403 `ACCESS_DENIED`.
 
 ## Thread management (ADR-009)
 ```python
@@ -55,11 +56,15 @@ Rules:
 2. **Status machine.** active → running (a `/chat` or `/chat/resume` starts) → active (final) or
    awaiting_review (interrupt) → running (resume) → active.
 3. **Busy.** A per-thread `asyncio.Lock` plus the persisted status: a second `/chat` or `/chat/resume` while
-   running → 409 `THREAD_BUSY`.
+   running → 409 `THREAD_BUSY`. The running status is a lease (`running_since`, `run_token`, taken by
+   `ThreadStore.start_run` before the stream opens and ended by `finish_run`). A lease older than
+   `agent.turn_timeout_s` (300 s) is stale: it is logged and the new request takes over, which covers streams
+   that never start and hung turns; a late `finish_run` with the old token changes nothing.
 4. **Pending review.** `/chat` on an awaiting_review thread → 409 `REVIEW_PENDING` (body includes the review
    summary so the UI can show the card). `/chat/resume` on a thread that is not awaiting_review → 409 `NO_PENDING_REVIEW`.
 5. **Errors before streaming.** 403, 404 and 409 are returned as problem+json before the SSE stream opens.
-6. **Recovery.** On startup, `recover()` resets threads left in running (crash or reload) to active.
+6. **Recovery.** On startup, `recover()` resets threads left in running (crash or reload): a thread whose
+   checkpoint holds a pending interrupt goes to awaiting_review, every other one to active.
 7. **Title.** Set once from the first user message after PII masking; rename via PATCH.
 8. **Cleanup.** `make reset-threads` deletes `paths.checkpoints` (stop the API first; CLAUDE.md Windows note).
 
@@ -69,21 +74,31 @@ Rules:
 citations, trace, assessment?} → `done`. Errors: `error` {code, message} then `done`.
 
 ## Behaviour
+- **Single API worker.** The per-thread lock is in-process, so `make api` runs one uvicorn worker. Production
+  (several workers or hosts) needs the lock at the database level (e.g. a conditional UPDATE on a shared
+  database) or in Redis.
+- **Identity.** The headers are authoritative. `persona` / `principal_id` in a request body or query are
+  optional and must equal the headers, else 400 `IDENTITY_MISMATCH`; missing headers → 400 `IDENTITY_REQUIRED`.
+- **Streaming.** `node` events come from LangGraph stream mode `tasks`, `tool` events from the workers' tool
+  trace events in `updates` (args already redacted; `ok` = result is not not_found/access_denied). `token`
+  events are not emitted: synthesize uses structured output.
+- **Connections.** Qdrant uses the process's cached reader; DuckDB stays per call (read-only), as decided
+  2026-10-04 in tasks.md, so `make data` can replace the warehouse without stopping the API.
 - Pydantic v2 schemas in `src/insurai/api/schemas.py`; OpenAPI at /docs.
 - CORS allows the Streamlit origin from settings.
 - Graph compiled once at startup; DuckDB and Qdrant clients opened once (read-only DuckDB).
 - Errors as RFC 7807 problem+json for non-streaming endpoints.
 
 ## Acceptance criteria
-- [ ] AC-09-01 `make api` serves /docs; /health reports ok for warehouse and qdrant.
-- [ ] AC-09-02 TestClient streaming test: /chat emits thread → node… → final → done for "status of CLM300210".
-- [ ] AC-09-03 Interrupt flow over HTTP: /chat (agent, analyze CLM300210) ends with `interrupt`; /chat/resume approve ends with `final` containing the decision.
-- [ ] AC-09-04 /audit/* with persona customer or claims_agent → 403.
-- [ ] AC-09-05 /claims/{id}/dossier without narrate returns in < 500 ms.
-- [ ] AC-09-07 Ownership: customer B reading or continuing customer A's thread → 403; a claims_agent using a customer's thread → 403; an unknown ID → 404.
-- [ ] AC-09-08 Two concurrent `/chat` calls on one thread: exactly one streams, the other gets 409 THREAD_BUSY.
-- [ ] AC-09-09 `/chat` on an awaiting_review thread → 409 REVIEW_PENDING with the summary; `/chat/resume` on an active thread → 409 NO_PENDING_REVIEW.
-- [ ] AC-09-10 `GET /threads` returns only the caller's threads, newest first, with titles PII-masked and at most 60 characters plus an ellipsis.
-- [ ] AC-09-11 `DELETE /threads/{id}` removes the record and its checkpoints; a later GET returns 404.
-- [ ] AC-09-12 A thread left in running when the API stops is active after restart.
-- [ ] AC-09-06 `python -m insurai.eval.run --via-api` produces the same metrics as in-process (± judge noise) on the fast suite.
+- [x] AC-09-01 `make api` serves /docs; /health reports ok for warehouse and qdrant.
+- [x] AC-09-02 TestClient streaming test: /chat emits thread → node… → final → done for "status of CLM300210".
+- [x] AC-09-03 Interrupt flow over HTTP: /chat (agent, analyze CLM300210) ends with `interrupt`; /chat/resume approve ends with `final` containing the decision.
+- [~] deferred: 3-day scope (needs portfolio_audit, spec 07, M5). AC-09-04 /audit/* with persona customer or claims_agent → 403.
+- [x] AC-09-05 /claims/{id}/dossier without narrate returns in < 500 ms.
+- [x] AC-09-07 Ownership: customer B reading or continuing customer A's thread → 403; a claims_agent using a customer's thread → 403; an unknown ID → 404.
+- [x] AC-09-08 Two concurrent `/chat` calls on one thread: exactly one streams, the other gets 409 THREAD_BUSY.
+- [x] AC-09-09 `/chat` on an awaiting_review thread → 409 REVIEW_PENDING with the summary; `/chat/resume` on an active thread → 409 NO_PENDING_REVIEW.
+- [x] AC-09-10 `GET /threads` returns only the caller's threads, newest first, with titles PII-masked and at most 60 characters plus an ellipsis.
+- [x] AC-09-11 `DELETE /threads/{id}` removes the record and its checkpoints; a later GET returns 404.
+- [x] AC-09-12 A thread left in running when the API stops is active after restart.
+- [~] deferred: 3-day scope (needs the spec 11 runner, M7). AC-09-06 `python -m insurai.eval.run --via-api` produces the same metrics as in-process (± judge noise) on the fast suite.

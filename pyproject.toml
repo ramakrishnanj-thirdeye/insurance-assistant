@@ -56,6 +56,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers"
+asyncio_mode = "auto"                 # async tests (spec 09 thread store, API) need no marker
 markers = [
   "unit: fast, no external state",
   "integration: needs data/warehouse.duckdb and/or data/qdrant",

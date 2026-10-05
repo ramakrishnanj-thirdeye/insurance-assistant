@@ -51,6 +51,7 @@ class RoleModel(_Section):
     num_ctx: int | None = None  # Ollama context window; Ollama truncates silently past it
     reasoning: bool | None = None  # Ollama thinking switch (False turns Qwen3 thinking off)
     request_timeout_s: float | None = None  # overrides llm.request_timeout_s for this role
+    seed: int | None = None  # Ollama sampling seed, so local eval runs are reproducible
 
 
 class LLMSettings(_Section):
@@ -90,11 +91,13 @@ class AgentSettings(_Section):
     max_parallel_workers: int
     tool_transport: Literal["inprocess", "mcp"] = "inprocess"
     history_turns: int = 6  # user+assistant turns the planner and synthesizer see (ADR-009)
+    turn_timeout_s: float = 300  # a thread running longer than this is a stale lease (spec 09 Busy)
 
 
 class APISettings(_Section):
     host: str
     port: int
+    cors_origins: list[str] = Field(default_factory=list)  # the Streamlit origin (spec 09 Behaviour)
 
 
 class MCPSettings(_Section):

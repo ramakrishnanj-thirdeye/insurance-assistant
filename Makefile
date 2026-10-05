@@ -3,7 +3,7 @@
 export PYTHONUTF8 := 1
 
 .PHONY: setup data rules index coverage-draft mcp mcp-smoke api ui phoenix test test-llm test-all lint fmt \
-        eval-fast eval eval-ablation eval-baseline demo-check all
+        eval-fast eval eval-ablation eval-baseline demo-check reset-threads all
 
 setup:
 	uv sync
@@ -27,8 +27,14 @@ mcp:
 mcp-smoke:
 	uv run python -m insurai.mcp_server.smoke
 
+# Single worker only: the per-thread busy lock is in-process (spec 09, ADR-009). Do not add --workers;
+# production would need a database- or Redis-level lock instead.
 api:
 	uv run uvicorn insurai.api.main:app --host 127.0.0.1 --port 8000 --reload
+
+# Delete all threads and checkpoints (paths.checkpoints). Stop make api first: Windows keeps the file locked.
+reset-threads:
+	uv run python -m insurai.agent.threads --reset
 
 ui:
 	uv run streamlit run ui/app.py

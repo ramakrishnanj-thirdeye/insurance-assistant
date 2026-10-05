@@ -13,6 +13,7 @@ personas:
     tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim]
     analyze_claim_view: customer   # rule names and next steps only; no escalation internals
     can_resume_review: false
+    can_read_eval_reports: false   # GET /eval/reports* (spec 09)
   claims_agent:
     description: Operations user handling individual claims
     row_scope: all
@@ -21,6 +22,7 @@ personas:
     tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim, run_analytics]
     analyze_claim_view: full
     can_resume_review: true
+    can_read_eval_reports: true
   supervisor:
     description: Claims supervisor and analyst; sees audit and analytics
     row_scope: all
@@ -29,3 +31,4 @@ personas:
     tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim, run_analytics, portfolio_audit]
     analyze_claim_view: full
     can_resume_review: true
+    can_read_eval_reports: true

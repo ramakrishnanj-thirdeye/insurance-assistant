@@ -16,7 +16,17 @@ from insurai.agent.trace import event, instant, now_ms
 from insurai.agent.workers import Recorder
 from insurai.rules.schemas import ClaimAssessment, ReviewDecision, RuleResult
 from insurai.settings import get_settings
-from insurai.tools.schemas import ClaimView, DocumentChecklist, InteractionHistory, Persona, SourceRef
+from insurai.tools.registry import TOOLS
+from insurai.tools.schemas import (
+    AccessDenied,
+    ClaimView,
+    DocumentChecklist,
+    InteractionHistory,
+    NotFound,
+    Persona,
+    SourceRef,
+    ToolContext,
+)
 
 
 class DossierState(TypedDict, total=False):
@@ -61,26 +71,9 @@ def assess(state: DossierState) -> dict[str, Any]:
         if inter_ev
         else None
     )
-    rules = provisional_rules(claim, docs)
-    needs_review = any(
-        r.status == "review" or (r.status == "fail" and r.severity in ("blocker", "escalate")) for r in rules
-    )
     sources: list[SourceRef] = [*claim_ev.sources, *docs_ev.sources, *(inter_ev.sources if inter_ev else [])]
-    persona = state["persona"]
-    assessment = ClaimAssessment(
-        claim_id=claim.claim_id,
-        as_of=get_settings().as_of_date,
-        view="customer" if persona == "customer" else "full",
-        facts=claim.model_dump(mode="json", exclude={"sources"}),
-        rules=rules,
-        checklist=docs,
-        needs_human_review=needs_review,
-        escalation_reasons=[]
-        if persona == "customer"
-        else [r.message or r.name for r in rules if r.status != "pass"],
-        interactions=interactions,
-        sources=sources,
-    )
+    assessment = build_assessment(claim, docs, interactions, sources, state["persona"])
+    rules, needs_review = assessment.rules, assessment.needs_human_review
     turn = state.get("turn", 0)
     intent_id = state["intent"].id
     trace = [
@@ -107,6 +100,47 @@ def assess(state: DossierState) -> dict[str, Any]:
         summary=summary,
     )
     return {"assessment": assessment, "evidence": [evidence], "trace": trace}
+
+
+def assess_claim(ctx: ToolContext, claim_id: str) -> ClaimAssessment | NotFound | AccessDenied:
+    """The dossier without the graph or the interrupt (spec 09 GET /claims/{id}/dossier, narrate=false)."""
+    claim = TOOLS["get_claim"](ctx, claim_id=claim_id)
+    if not isinstance(claim, ClaimView):
+        return claim
+    docs = TOOLS["get_claim_documents"](ctx, claim_id=claim_id)
+    if not isinstance(docs, DocumentChecklist):
+        return docs
+    found = TOOLS["get_claim_interactions"](ctx, claim_id=claim_id)
+    interactions = found if isinstance(found, InteractionHistory) else None
+    sources = [*claim.sources, *docs.sources, *(interactions.sources if interactions else [])]
+    return build_assessment(claim, docs, interactions, sources, ctx.persona)
+
+
+def build_assessment(
+    claim: ClaimView,
+    docs: DocumentChecklist,
+    interactions: InteractionHistory | None,
+    sources: list[SourceRef],
+    persona: Persona,
+) -> ClaimAssessment:
+    rules = provisional_rules(claim, docs)
+    needs_review = any(
+        r.status == "review" or (r.status == "fail" and r.severity in ("blocker", "escalate")) for r in rules
+    )
+    return ClaimAssessment(
+        claim_id=claim.claim_id,
+        as_of=get_settings().as_of_date,
+        view="customer" if persona == "customer" else "full",
+        facts=claim.model_dump(mode="json", exclude={"sources"}),
+        rules=rules,
+        checklist=docs,
+        needs_human_review=needs_review,
+        escalation_reasons=[]
+        if persona == "customer"
+        else [r.message or r.name for r in rules if r.status != "pass"],
+        interactions=interactions,
+        sources=sources,
+    )
 
 
 def review(state: DossierState) -> dict[str, Any]:

@@ -200,6 +200,11 @@ def to_sources(chunks: list[RetrievedChunk]) -> list[SourceRef]:
     ]
 
 
+def collection_count(collection: str) -> int:
+    """Points in `collection` on the process's cached reader (spec 09 /health)."""
+    return _reader().count(collection).count
+
+
 def close_readers() -> None:
     with _readers_lock:
         for client in _readers.values():

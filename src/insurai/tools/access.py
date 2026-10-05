@@ -23,6 +23,8 @@ class PersonaConfig(BaseModel):
     row_scope: Literal["own_customer", "all"]
     hidden_columns: list[str]
     tools: list[str]
+    can_resume_review: bool = False
+    can_read_eval_reports: bool = False
 
 
 @lru_cache(maxsize=1)

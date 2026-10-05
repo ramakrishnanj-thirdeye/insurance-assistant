@@ -41,15 +41,19 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] Checkpointer (memory, sqlite, async sqlite; strict msgpack allowlist), follow-ups, clarifications
 - [x] multi_turn.jsonl (10)
 - [x] Per-turn state reset, history window, `run_turn`/`resume` with ReviewPending (spec 06, ADR-009)
-- [ ] Thread store, ownership, status machine, minimal /chat (spec 09 M4 slice; next pass)
+- [x] Thread store, ownership, status machine with a 300 s lease (`agent.turn_timeout_s`), startup recovery that keeps pending reviews, /chat and /chat/resume over SSE (spec 09 M4 slice, 2026-10-05)
 - [ ] Issue: `agent.tool_transport: mcp` deferred (3-day scope); `build_graph` raises NotImplementedError for it
 - [ ] Issue: claim_dossier internals are provisional (needs_human_review from ClaimView flags); spec 07 replaces `assess` with `evaluate_claim` in M5
 - [ ] Issue: input guard is deterministic only (PII, injection markers, scope keywords); small-LLM injection confirmation, GUARANTEE_REQUEST path and V5–V7 land with spec 08 in M7
 - [ ] Issue: AC-06-10 api-lite smoke skips until an ANTHROPIC_API_KEY exists (local passes)
-- [ ] Issue: AC-06-02 intent below target on qwen3:8b (2026-10-05, 68 items, planner.md v0.3.0): intent 0.8971, entity 0.9853 (target met). Decided: rule 7 (counts vs one entity) fixed SQL017/SQL018; rule 2 probe abstains when nothing is confident (EVAL032); claim/policy intents without an ID but with a product become policy_question (EVAL001/012/018/022/028/030). Remaining model misses: SQL010-012 (extra claim_documents on hospital-via-claim), EVAL021 (hospital_check for cashless repairs), EVAL034 (out_of_scope), MT003 (extra claim_analysis), MT006 (only policy_question for "my waiting period"). Earlier, higher scores relied on few-shots that copied golden IDs and phrasing; now guarded by tests/agent/test_prompt_hygiene.py. Re-measure on api-lite when a key exists
+- [ ] Issue: AC-06-02 intent below target on qwen3:8b (2026-10-05, 68 items, planner.md v0.3.0): intent 0.8971, entity 0.9853 (target met). Decided: rule 7 (counts vs one entity) fixed SQL017/SQL018; rule 2 probe abstains when nothing is confident (EVAL032); claim/policy intents without an ID but with a product become policy_question (EVAL001/012/018/022/028/030). Remaining model misses: SQL010-012 (extra claim_documents on hospital-via-claim), EVAL021 (hospital_check for cashless repairs), EVAL034 (out_of_scope), MT003 (extra claim_analysis), MT006 (only policy_question for "my waiting period"). Earlier, higher scores relied on few-shots that copied golden IDs and phrasing; now guarded by tests/agent/test_prompt_hygiene.py. Re-measure on api-lite when a key exists. Re-run 2026-10-05 after spec 09 (no planner or prompt change): intent 0.9118, entity 1.0; MT006 passed this time (model run-to-run variance)
 - [ ] Issue: correctness gate needs the spec 11 judge; partial evidence: e2e_sql_facts gold_in_answer 1.0 (19/19 scored, 2026-10-05, local)
 - Recorded 2026-10-05: `make eval-fast` takes ~17 min on the local profile (routing ~11 min, e2e ~5 min). AC-11-04's 10-minute limit applies to api-lite; nothing to change
 - **Gate:** AC-06-*, AC-06-11, AC-06-12, AC-09-07 … AC-09-09, AC-09-12; routing ≥ 95%; correctness ≥ 90% on sql_facts + policy_clauses
+- **Closed 2026-10-05 with two known open gates** (decided): AC-06-*, AC-09-07 … AC-09-09 and AC-09-12 pass; sql_facts 1.0, policy_clauses recall@5 1.0, e2e gold_in_answer 1.0
+  - [ ] Open gate: routing intent_accuracy ≥ 0.95 on qwen3:8b (latest 0.9118, entity_exact 1.0). Re-measure on api-lite when an ANTHROPIC_API_KEY exists
+  - [ ] Open gate: correctness ≥ 90% on sql_facts + policy_clauses needs the spec 11 judge (M7)
+- Decision 2026-10-05: the local profile sets `seed: 42` on every Ollama role so eval runs are reproducible; earlier local numbers were unseeded
 
 ## M5 Claim Dossier — spec 07
 - [ ] Rules loader/compiler, evaluate_claim, `make rules`
@@ -71,12 +75,17 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair; guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)
 
 ## M8 API, UI, demo — specs 09, 10
-- [ ] Full API with SSE and resume; audit and eval endpoints
+- [x] API with SSE and resume, /health, /coverage-matrix, /claims/{id}/dossier (narrate=false, provisional assessment), /eval/reports (spec 09, 2026-10-05)
+- [ ] Issue: AC-09-04 deferred (3-day scope): `/audit/summary` and `/audit/claims` need `portfolio_audit` (spec 07, M5)
+- [ ] Issue: AC-09-06 deferred (3-day scope): `POST /eval/run` and `--via-api` (eval threads with source=eval, deleted after the run) need the spec 11 runner (M7)
+- [ ] Issue: `/claims/{id}/dossier?narrate=true` returns 501 until the spec 07 narrative (M5); `token` SSE events are not emitted (synthesize uses structured output)
+- Recorded 2026-10-05: the busy lock is in-process, so `make api` must run a single uvicorn worker; production needs a database- or Redis-level lock (spec 09 Behaviour)
 - [ ] Five Streamlit pages; Trace panel; review card
 - [ ] `make demo-check`; rehearse the run-of-show
 - [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3)
 - [ ] Demo machine: Best performance power mode, plugged in, powercfg throttling exemption for Python.
-- [ ] Thread list, rename and delete endpoints; Conversations sidebar (specs 09, 10)
+- [x] Thread list, rename and delete endpoints (spec 09, 2026-10-05)
+- [ ] Conversations sidebar (spec 10)
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 
 ## Open decisions (defaults applied; change here if the business decides otherwise)

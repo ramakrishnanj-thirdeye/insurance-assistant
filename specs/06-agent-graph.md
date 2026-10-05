@@ -108,7 +108,8 @@ Evidence is passed inside `<evidence id=... source=...>` tags; the prompt says e
 - **History window.** The planner and synthesizer receive the last `agent.history_turns` (default 6) user and assistant turns, trimmed with `langchain_core.messages.trim_messages` by turn count, plus `active_entities`. Tool and evidence messages from earlier turns are never replayed. The full history stays in the checkpoint for display. Add `history_turns: 6` under `agent:` in config/settings.yaml.
 - claim_dossier calls `interrupt(assessment_summary)` when `needs_human_review` and persona ≠ customer;
   the API resumes with `Command(resume=ReviewDecision(action="approve"|"override"|"request_info", note=str))`.
-- Stream modes `updates` + `messages`; the API maps them to SSE events (spec 09).
+- Stream modes `tasks` + `updates` (node start/end and tool events); the API maps them to SSE events (spec 09).
+  `messages` is unused: synthesize emits structured JSON, so there are no answer tokens to stream.
 
 ## Trace (TraceEvent list, returned with every response)
 intents, entity resolution, each tool call (name, args without PII, duration, result size), SQL text,
