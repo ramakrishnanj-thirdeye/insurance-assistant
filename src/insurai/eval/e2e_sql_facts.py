@@ -5,6 +5,7 @@ Partial evidence for the M4 correctness gate until the spec 11 judge exists. Gol
 the warehouse on every run, as in the tools-only sql_facts slice.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -21,7 +22,28 @@ from insurai.rules.schemas import ReviewDecision
 log = get_logger(__name__)
 
 SLICE = "e2e_sql_facts"
-EMPTY_LIST_WORDS = ("none", "no required document", "no documents are missing", "nothing", "all required")
+# Gold "no missing documents": the answer must say so plainly and must not also say something is missing.
+NONE_MISSING = re.compile(
+    r"\bnot missing\b"
+    r"|\bno (?:required )?documents? (?:are|is) missing\b"
+    r"|\bno missing documents?\b"
+    r"|\bnothing is missing\b"
+    r"|\bnone (?:of the (?:required )?documents )?(?:are|is) missing\b"
+    r"|\ball required documents (?:are|have been) (?:present|received|submitted|provided)\b"
+    r"|\bmissing(?: documents)?\s*:\s*none\b"
+)
+SAYS_MISSING = re.compile(
+    r"\b(?:is|are|still|remains?)\s+missing\b"
+    r"|\bmissing(?: documents?)?\s*[:\-]\s*\w"
+    r"|\bmissing\s+(?:the|a|an|its|their|your)\b"
+)
+
+
+def states_none_missing(text: str) -> bool:
+    """A plain "none missing" statement, and no claim that a document is missing once those are removed."""
+    if not NONE_MISSING.search(text):
+        return False
+    return not SAYS_MISSING.search(NONE_MISSING.sub(" ", text))
 
 
 def gold_in_answer(gold: Any, answer: str) -> bool | None:
@@ -39,7 +61,7 @@ def gold_in_answer(gold: Any, answer: str) -> bool | None:
         return gold.isoformat() in answer
     if isinstance(gold, (list, tuple)):
         if not gold:
-            return any(w in text for w in EMPTY_LIST_WORDS)
+            return states_none_missing(text)
         return all(str(g).casefold() in text for g in gold)
     return " ".join(str(gold).split()).casefold() in text
 

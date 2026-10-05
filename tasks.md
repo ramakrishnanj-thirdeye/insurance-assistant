@@ -81,7 +81,8 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Issue: AC-09-04 deferred (3-day scope): `/audit/summary` and `/audit/claims` need `portfolio_audit` (spec 07, M5)
 - [ ] Issue: AC-09-06 deferred (3-day scope): `POST /eval/run` and `--via-api` (eval threads with source=eval, deleted after the run) need the spec 11 runner (M7)
 - [ ] Issue: `/claims/{id}/dossier?narrate=true` returns 501 until the spec 07 narrative (M5). (`token` SSE events: resolved by the streaming synthesis pass, 2026-10-06)
-- [ ] Eval follow-up (2026-10-06, after the streaming pass): `e2e_sql_facts` SQL009 (gold `[]`) scored a miss on a correct, verified answer ("are not missing"); the old hit came from the abstain fallback's "missing: none". `EMPTY_LIST_WORDS` should accept "not missing" / "no documents are missing". Routing MT006 lost policy_id POL218917 on the customer's "What is my waiting period?" (entity_exact 0.9853, same as the 2026-10-05 measurement in spec 06). routing.intent_accuracy 0.9118 is unchanged and still below the 0.95 gate
+- [x] Eval scorer (2026-10-06): `e2e_sql_facts` gold "no missing documents" now accepts a clear statement ("not missing", "no documents are missing", "nothing is missing", "all required documents are present", "missing: none") and fails any answer that also says a document is missing (negative tests in tests/eval). Note: the previous `gold_in_answer` 1.0 (2026-10-05) included a SQL009 hit from the abstain fallback's "missing: none", not from a synthesized answer; the old word list also accepted a bare "none" or "nothing" anywhere in the text
+- [ ] Routing follow-up (2026-10-06, after the streaming pass): MT006 lost policy_id POL218917 on the customer's "What is my waiting period?" (entity_exact 0.9853, same as the 2026-10-05 measurement in spec 06). routing.intent_accuracy 0.9118 is unchanged and still below the 0.95 gate
 - [x] Streaming synthesis pass (specs 06, 09, 10; 2026-10-06): plain-markdown synthesize with regex citations; `token`, `draft_hidden`, `heartbeat` and `tool_start` SSE events; never streams a promise or `<think>`; verified badge; status line from `config/ui_status.yaml` with tone; prompt hygiene over every prompt file (fixed golden-ID leaks in synthesize.md and templates.md, a golden phrase in planner.md)
 - Recorded 2026-10-05: the busy lock is in-process, so `make api` must run a single uvicorn worker; production needs a database- or Redis-level lock (spec 09 Behaviour)
 - [ ] Five Streamlit pages; Trace panel; review card (Chat page, minimal trace and review card done in M4)
@@ -104,6 +105,8 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
   - Windows power mode Best performance, laptop plugged in
   - `powercfg` power-throttling exemptions for Python and Ollama
   - Port 8000 cleanup if a stale API holds it: `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`, then `Stop-Process -Id <pid>` (Git Bash: `netstat -ano | findstr :8000`, then `taskkill /PID <pid> /F`)
+- [ ] Try Ollama KV-cache quantization (`OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`), then re-measure the GPU/CPU split (`ollama ps`, 36%/64% CPU/GPU on 2026-10-06) and latency (TTFT 9.4 s, total 12.1 s, planner 7.7–8.4 tok/s on the maternity question)
+- [ ] Size the DraftGate hold-back to the longest possible guarantee match (max regex width over `no_guarantee.patterns`, plus a margin) instead of the fixed 64 characters; it costs about 1.7 s of TTFT on local qwen3:8b
 
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
 

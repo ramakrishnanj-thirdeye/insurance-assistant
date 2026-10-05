@@ -58,3 +58,33 @@ def test_routing_items_cover_every_golden_slice_once() -> None:
 )
 def test_e2e_sql_facts_gold_match_scorer(gold: object, answer: str, hit: bool | None) -> None:
     assert gold_in_answer(gold, answer) is hit
+
+
+NONE_MISSING_ANSWERS = [
+    "The required documents for claim CLM418078 are not missing; however, the Claim Form and Hospital Bill "
+    "are pending verification [claim_documents:CLM418078].",
+    "No documents are missing for this claim. [claim_documents:CLM418078]",
+    "Nothing is missing: the Claim Form is pending verification. [claim_documents:CLM418078]",
+    "All required documents are present. [claim_documents:CLM418078]",
+    "- Claim CLM418078 documents — missing: none; pending verification: Claim Form, Hospital Bill; "
+    "rejected: none. [claim_documents:CLM418078]",
+]
+SOMETHING_MISSING_ANSWERS = [
+    "The Discharge Summary is missing. [claim_documents:CLM418078]",
+    "Missing documents: Claim Form, ID Proof. [claim_documents:CLM418078]",
+    "Two documents are missing from the file. [claim_documents:CLM418078]",
+    "The claim is missing the hospital bill. [claim_documents:CLM418078]",
+    "Nothing is missing except that the ID Proof is still missing. [claim_documents:CLM418078]",
+    "The documents are pending verification. [claim_documents:CLM418078]",  # never says none are missing
+    "Rejected: none. Missing: Claim Form. [claim_documents:CLM418078]",
+]
+
+
+@pytest.mark.parametrize("answer", NONE_MISSING_ANSWERS)
+def test_e2e_scorer_accepts_a_clear_none_missing_statement(answer: str) -> None:
+    assert gold_in_answer([], answer) is True
+
+
+@pytest.mark.parametrize("answer", SOMETHING_MISSING_ANSWERS)
+def test_e2e_scorer_rejects_answers_that_say_a_document_is_missing(answer: str) -> None:
+    assert gold_in_answer([], answer) is False
