@@ -6,21 +6,26 @@ import time
 from typing import Any
 
 import pytest
-from fakes import citing_synth, install, planner_script
+from fakes import citing_synth, install, plan_of, planner_script
 from fastapi.testclient import TestClient
-from sse_client import AGENT, OWNER, OWNER_ID, WHY_PENDING, stream
+from sse_client import AGENT, OWNER, OWNER_ID, stream
 
 from insurai.settings import get_settings
 from insurai.tools.base import fetch_one
 
 pytestmark = pytest.mark.integration
 
-WHY = "Why is the status of CLM300210 still pending?"  # planner path, claim_status on CLM300210
+# Planner path with a generator answer: claim_interactions has no template answer (spec 06), and a why
+# question would be promoted to claim_analysis (rule 10).
+WHY = "Who contacted us about CLM300210 recently?"
+CONTACTS = plan_of(
+    ("claim_interactions", {"claim_id": "CLM300210"}), question="Who contacted us about CLM300210?"
+)
 MANDATED = "Final decision depends on complete claim assessment."
 
 
 def _script(monkeypatch: pytest.MonkeyPatch, synth: Any, planner: Any = None) -> None:
-    install(monkeypatch, {"Plan": planner or planner_script({"why is": WHY_PENDING}), "Text": synth})
+    install(monkeypatch, {"Plan": planner or planner_script({"who contacted": CONTACTS}), "Text": synth})
 
 
 def _names(events: list[tuple[str, Any]]) -> list[str]:
@@ -85,8 +90,8 @@ def test_AC_09_13_a_promise_is_never_streamed_and_final_has_mandated_wording(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     text = (
-        "Here is what the records show for this claim right now. [claims:CLM300210] "
-        "Your claim will definitely be approved. [claims:CLM300210]"
+        "Here is what the records show for this claim right now. [interactions:CLM300210] "
+        "Your claim will definitely be approved. [interactions:CLM300210]"
     )
     _script(monkeypatch, lambda messages: text)
     _, events = stream(client, "/chat", {"message": WHY}, AGENT)
@@ -109,7 +114,7 @@ def test_AC_09_14_heartbeat_every_interval_while_the_planner_runs(
 ) -> None:
     def slow_planner(messages: list[Any]) -> Any:
         time.sleep(0.35)
-        return WHY_PENDING
+        return CONTACTS
 
     monkeypatch.setattr(get_settings().agent, "heartbeat_s", 0.1)
     _script(monkeypatch, citing_synth, planner=slow_planner)
@@ -133,7 +138,7 @@ def test_AC_09_15_planner_end_carries_safe_plan_summary_and_no_customer_name(
         d for n, d in events if n == "node" and d["name"] == "planner" and d["status"] == "end"
     )
     assert planner_end["plan"] == {
-        "intents": ["claim_status"],
+        "intents": ["claim_interactions"],
         "product": None,
         "claim_ids": ["CLM300210"],
         "policy_ids": [],

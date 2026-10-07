@@ -268,7 +268,10 @@ def test_policy_details_without_policy_but_with_product_becomes_policy_question(
 
 @pytest.mark.parametrize(
     ("message", "mode"),
-    [("Analyze claim CLM300210", "assess"), ("Why is CLM300210 pending?", "explain")],
+    [
+        ("Analyze claim CLM300210 and its missing documents", "assess"),
+        ("Why is CLM300210 pending?", "explain"),
+    ],
 )
 def test_finalize_plan_sets_mode_and_question_on_claim_analysis(message: str, mode: str) -> None:
     plan = plan_of(
@@ -337,3 +340,126 @@ def test_rewrite_guarantees_keeps_lines_and_lists() -> None:
     out = rewrite_guarantees(text)
     assert out.split("\n")[0] == "Position line." and out.count("\n") == 2
     assert "definitely" not in out and "Final decision depends on complete claim assessment." in out
+
+
+# --- deterministic routing: pruning and promotion (spec 06 rules 9 and 10) --------------------------------
+
+
+def _types(plan: Plan) -> list[str]:
+    return [i.type for i in plan.intents]
+
+
+def test_AC_06_19_stray_claim_documents_on_a_hospital_question_is_pruned() -> None:
+    plan = plan_of(
+        ("claim_documents", {"claim_id": "CLM300210"}), ("hospital_check", {"claim_id": "CLM300210"})
+    )
+    ctx = _ctx(message="Is the hospital on CLM300210 empanelled?", resolved=Entities(claim_id="CLM300210"))
+    final = finalize_plan(plan, ctx)
+    assert _types(final) == ["hospital_check"] and final.intents[0].id == "i1"
+    assert ctx.pruned == ["claim_documents"]
+
+
+def test_AC_06_19_stray_claim_analysis_next_to_a_policy_question_is_pruned() -> None:
+    plan = plan_of(
+        ("claim_analysis", {"claim_id": "CLM300210"}), ("policy_question", {"product": "Two Wheeler Secure"})
+    )
+    message = "Does this claim's policy pay for riding after drinking?"
+    final = finalize_plan(plan, _ctx(message=message, active=Entities(claim_id="CLM300210")))
+    assert _types(final) == ["policy_question"]
+
+
+def test_AC_06_19_single_intent_is_never_pruned_and_an_all_pruned_plan_is_kept() -> None:
+    single = finalize_plan(plan_of(("claim_documents", {"claim_id": "CLM300210"})), _ctx(message="CLM300210"))
+    both = plan_of(
+        ("claim_documents", {"claim_id": "CLM300210"}), ("hospital_check", {"claim_id": "CLM300210"})
+    )
+    ctx = _ctx(message="CLM300210 please")
+    kept = finalize_plan(both, ctx)
+    assert _types(single) == ["claim_documents"]
+    assert _types(kept) == ["claim_documents", "hospital_check"] and ctx.pruned == []
+
+
+def test_AC_06_19_unlisted_intents_are_never_pruned() -> None:
+    plan = plan_of(
+        ("policy_question", {"product": "Car Shield Plus"}), ("hospital_check", {"hospital_id": "HOSP1"})
+    )
+    final = finalize_plan(plan, _ctx(message="Is HOSP1 in network, and what about it?"))
+    assert _types(final) == ["policy_question", "hospital_check"]
+
+
+def test_AC_06_19_triggers_come_from_definitions_config_and_glossary() -> None:
+    from insurai.agent.routing import routing_config
+
+    triggers = routing_config().triggers
+    assert "Discharge Summary" in triggers["claim_documents"]  # config/required_documents.yaml
+    assert "adjudicate" in triggers["claim_analysis"]  # config/rules.yaml dossier.assess_keywords
+    assert "under review" in triggers["claim_status"]  # config/rules.yaml dossier.status_words
+    assert "copayment" in triggers["policy_details"]  # glossary group of co-pay
+    assert "empanelled hospital" in triggers["hospital_check"]  # glossary group of network hospital
+    assert "policy_question" not in triggers
+
+
+def test_AC_06_19_golden_expected_intents_have_a_trigger_safety_net() -> None:
+    """Safety net, not a tuning target: every expected intent of a multi-intent golden item must survive
+    pruning. A failure means a general term is missing (log it in tasks.md), never an eval phrase."""
+    import json
+
+    from insurai.agent.routing import mentions, routing_config
+    from insurai.settings import ROOT
+
+    triggers = routing_config().triggers
+    misses = []
+    for path in sorted((ROOT / "eval" / "datasets").glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            item = json.loads(line) if line.strip() else None
+            if not item or len(item.get("expected_route", [])) < 2:
+                continue
+            last = [t["content"] for t in item["turns"] if t.get("role", "user") == "user"][-1]
+            misses += [
+                (item["id"], intent)
+                for intent in item["expected_route"]
+                if intent in triggers and not mentions(last, triggers[intent])
+            ]
+    assert not misses
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Give me a summary of claim CLM300210",
+        "Why is CLM300210 pending?",
+        "Can I get an overview of CLM300210?",
+        "Please summarise CLM300210",
+        "summarize CLM300210 for me",
+    ],
+)
+def test_AC_06_20_summary_and_why_questions_promote_claim_status_to_explain(message: str) -> None:
+    ctx = _ctx(message=message, resolved=Entities(claim_id="CLM300210"))
+    final = finalize_plan(plan_of(("claim_status", {"claim_id": "CLM300210"})), ctx)
+    (intent,) = final.intents
+    assert (intent.type, intent.mode, intent.question) == ("claim_analysis", "explain", message)
+    assert ctx.promoted == 1
+
+
+def test_AC_06_20_promoted_intent_explains_even_with_an_assess_word() -> None:
+    message = "Why did you reject CLM300210?"  # "reject" is an assess keyword
+    final = finalize_plan(plan_of(("claim_status", {"claim_id": "CLM300210"})), _ctx(message=message))
+    assert final.intents[0].mode == "explain"
+
+
+def test_AC_06_20_claim_status_on_an_analysed_claim_collapses_into_the_analysis() -> None:
+    plan = plan_of(("claim_analysis", {"claim_id": "CLM300210"}), ("claim_status", {"claim_id": "CLM300210"}))
+    final = finalize_plan(plan, _ctx(message="Analyze CLM300210 and give its status"))
+    assert _types(final) == ["claim_analysis"] and final.intents[0].id == "i1"
+    other = plan_of(
+        ("claim_analysis", {"claim_id": "CLM300210"}), ("claim_status", {"claim_id": "CLM300500"})
+    )
+    message = "Analyze CLM300210; status of CLM300500"
+    assert _types(finalize_plan(other, _ctx(message=message))) == ["claim_analysis", "claim_status"]
+
+
+def test_AC_06_20_no_promotion_without_a_summary_or_why_word() -> None:
+    final = finalize_plan(
+        plan_of(("claim_status", {"claim_id": "CLM300210"})), _ctx(message="Is CLM300210 paid?")
+    )
+    assert _types(final) == ["claim_status"] and final.intents[0].mode is None

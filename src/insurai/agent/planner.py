@@ -1,8 +1,9 @@
 """Planner (spec 06): one structured LLM call for the Plan, then deterministic finalisation.
 
-`finalize_plan` fills IDs from the message and active_entities, resolves products (routing rule 2), caps the
-intent count (rule 6), sets explain vs assess on claim_analysis intents and turns unresolvable gaps into
-clarifications. It never invents an ID.
+`finalize_plan` promotes summary and why questions to claim_analysis (rule 10), prunes intents whose
+trigger words are absent (rule 9), fills IDs from the message and active_entities, resolves products
+(rule 2), caps the intent count (rule 6), sets explain vs assess on claim_analysis intents and turns
+unresolvable gaps into clarifications. It never invents an ID.
 """
 
 import json
@@ -12,6 +13,7 @@ from typing import Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from insurai.agent import routing
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.resolve import canonical_product, product_names
 from insurai.agent.schemas import NO_WORKER, Entities, Intent, Plan
@@ -41,6 +43,8 @@ class PlanContext:
     product_of: Callable[[Entities], str | None] = lambda e: None  # product behind a claim or policy ID
     product_probe: Callable[[str], ProbeOutcome] = lambda q: "product"  # unfiltered search: see ProbeOutcome
     notes: list[str] = field(default_factory=list)
+    pruned: list[str] = field(default_factory=list)  # intent types dropped by rule 9 (trace)
+    promoted: int = 0  # claim_status intents turned into claim_analysis by rule 10 (trace)
 
 
 def planner_messages(
@@ -59,13 +63,17 @@ def planner_messages(
 def finalize_plan(plan: Plan, ctx: PlanContext) -> Plan:
     if plan.clarification and not plan.intents:
         return plan
-    intents = plan.intents
-    if len(intents) > ctx.max_intents:
-        ctx.notes.append(template("intents_truncated", count=len(intents), max=ctx.max_intents))
-        intents = intents[: ctx.max_intents]
+    promoted_all, flags = routing.promote(plan.intents, ctx.message)
+    keep = routing.prune(promoted_all, ctx.message)
+    ctx.pruned = [i.type for k, i in enumerate(promoted_all) if k not in keep]
+    ctx.promoted = sum(flags[k] for k in keep)
+    pairs = [(promoted_all[k], flags[k]) for k in keep]
+    if len(pairs) > ctx.max_intents:
+        ctx.notes.append(template("intents_truncated", count=len(pairs), max=ctx.max_intents))
+        pairs = pairs[: ctx.max_intents]
 
     out: list[Intent] = []
-    for n, intent in enumerate(intents, start=1):
+    for intent, promoted in pairs:
         entities = _fill(intent, ctx)
         needs_claim = intent.type in CLAIM_INTENTS and entities.claim_id is None
         needs_policy = (
@@ -90,11 +98,13 @@ def finalize_plan(plan: Plan, ctx: PlanContext) -> Plan:
             if clarification:
                 return Plan(clarification=clarification)
             entities = entities.model_copy(update={"product": product})
-        update: dict[str, object] = {"id": f"i{n}", "entities": entities, "mode": None, "question": None}
+        update: dict[str, object] = {"entities": entities, "mode": None, "question": None}
         if intent.type == "claim_analysis":  # explain vs assess (deterministic, from the user's words)
-            update |= {"mode": question_mode(ctx.message), "question": ctx.message}
+            mode = "explain" if promoted else question_mode(ctx.message)
+            update |= {"mode": mode, "question": ctx.message}
         out.append(intent.model_copy(update=update))
-    return Plan(intents=out)
+    out = routing.dedupe(out)
+    return Plan(intents=[i.model_copy(update={"id": f"i{n}"}) for n, i in enumerate(out, start=1)])
 
 
 def _fill(intent: Intent, ctx: PlanContext) -> Entities:

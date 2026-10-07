@@ -173,6 +173,8 @@ def planner(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
             "plan",
             turn,
             raw=[i.type for i in plan.intents],
+            pruned=pctx.pruned,
+            promoted=pctx.promoted,
             intents=[
                 {"id": i.id, "type": i.type, "entities": i.entities.set_fields()} for i in final.intents
             ],

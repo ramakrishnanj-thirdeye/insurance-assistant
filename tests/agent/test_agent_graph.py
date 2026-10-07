@@ -26,13 +26,21 @@ ANALYZE = plan_of(("claim_analysis", {"claim_id": "CLM300210"}), question="Analy
 DOCS_FOLLOW_UP = plan_of(
     ("claim_documents", {}), question="Which documents are missing for the active claim?"
 )
+# claim_interactions has no template answer, so it exercises synthesis (spec 06 template answers).
+CONTACTS_FOLLOW_UP = plan_of(("claim_interactions", {}), question="Who contacted us about the active claim?")
 
 
 def _install_scripts(monkeypatch: pytest.MonkeyPatch) -> None:
     install(
         monkeypatch,
         {
-            "Plan": planner_script({"analyze": ANALYZE, "which documents are missing": DOCS_FOLLOW_UP}),
+            "Plan": planner_script(
+                {
+                    "analyze": ANALYZE,
+                    "which documents are missing": DOCS_FOLLOW_UP,
+                    "contacts": CONTACTS_FOLLOW_UP,
+                }
+            ),
             "Text": citing_synth,
         },
     )
@@ -125,12 +133,12 @@ def test_AC_06_12_history_window_caps_prompts_at_6_turns(graph: Any, monkeypatch
         run_turn(graph, "t-ac12", f"status of CLM30{n}210" if n < 9 else "status of CLM300210", AGENT)
     _install_scripts(monkeypatch)
     recorder = LLMCallRecorder()
-    result = run_turn(graph, "t-ac12", "which documents are missing?", AGENT, callbacks=[recorder])
+    result = run_turn(graph, "t-ac12", "what contacts were there?", AGENT, callbacks=[recorder])
     planner_calls, synth_calls = recorder.tagged("prompt:planner"), recorder.tagged("prompt:synthesize")
     assert planner_calls and synth_calls
     for call in planner_calls + synth_calls:
         assert history_turns(call.message_types) == 6
-    assert "[claim_documents:CLM300210]" in result.answer_markdown
+    assert "[interactions:CLM300210]" in result.answer_markdown
 
 
 def test_AC_06_09_trace_fields_on_fast_path(graph: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,14 +187,14 @@ def test_verify_retries_once_with_feedback_then_abstains(graph: Any, monkeypatch
         prompts.append(str(messages[0].content))
         return "Payable is ₹99,999. [claims:CLM300210]"  # invented number
 
-    plan = plan_of(("claim_documents", {"claim_id": "CLM300210"}), question="Which documents are missing?")
+    plan = plan_of(("claim_interactions", {"claim_id": "CLM300210"}), question="Who contacted us?")
     install(monkeypatch, {"Plan": [plan], "Text": bad_synth})
-    result = run_turn(graph, "t-retry", "Which documents are missing for CLM300210?", AGENT)
+    result = run_turn(graph, "t-retry", "Who contacted us about CLM300210?", AGENT)
     outcomes = [e.data["outcome"] for e in result.trace if e.kind == "verify"]
     assert outcomes == ["retry", "abstain"]
     assert len(prompts) == 2 and "99999" in prompts[1]  # verifier feedback reached the retry
     assert result.answer_markdown.startswith("The policy documents don't address this directly.")
-    assert "[claim_documents:CLM300210]" in result.answer_markdown and "99,999" not in result.answer_markdown
+    assert "[interactions:CLM300210]" in result.answer_markdown and "99,999" not in result.answer_markdown
 
 
 @pytest.mark.parametrize(
@@ -264,10 +272,10 @@ async def test_AC_06_14_planner_not_found_template_emits_no_tokens(
 async def test_AC_06_13_verify_runs_on_the_full_streamed_text(
     graph: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    text = "The claim documents are listed in the record. [claim_documents:CLM300210] Payable is ₹99,999."
-    plan = plan_of(("claim_documents", {"claim_id": "CLM300210"}), question="Which documents are missing?")
+    text = "The claim's contacts are listed in the record. [interactions:CLM300210] Payable is ₹99,999."
+    plan = plan_of(("claim_interactions", {"claim_id": "CLM300210"}), question="Who contacted us?")
     install(monkeypatch, {"Plan": [plan], "Text": lambda messages: text})
-    events = await _events(graph, "t-ac13-full", "Which documents are missing for CLM300210?")
+    events = await _events(graph, "t-ac13-full", "Who contacted us about CLM300210?")
     first = [d["text"] for name, d in events if name == "token" and d["attempt"] == 1]
     assert "".join(first) == text and "99,999" in first[-1]  # the orphan number arrives in the last chunk
     outcomes = [d.get("outcome") for name, d in events if name == "node" and d["name"] == "verify"]
@@ -275,3 +283,106 @@ async def test_AC_06_13_verify_runs_on_the_full_streamed_text(
     assert outcomes == ["retry", "abstain"]  # V3 saw the complete text, not a prefix
     result = events[-1][1]
     assert "99,999" not in result.answer_markdown
+
+
+# --- template answers (spec 06, AC-06-21, AC-06-22) -----------------------------------------------------
+
+TEMPLATE_CASES = [
+    # (intent, entities, question, owner of the claim or policy, expected text)
+    ("claim_status", {"claim_id": "CLM300210"}, "Has CLM300210 been settled?", OWNER, "**Approved**"),
+    (
+        "claim_documents",
+        {"claim_id": "CLM418078"},
+        "What paperwork is still needed for CLM418078?",
+        "CUST127701",
+        "No documents are missing for claim CLM418078.",
+    ),
+    (
+        "hospital_check",
+        {"claim_id": "CLM300210"},
+        "Is the hospital on CLM300210 in network?",
+        OWNER,
+        "The hospital on claim CLM300210 is",
+    ),
+    (
+        "hospital_check",
+        {"claim_id": "CLM363235"},
+        "Is the hospital on CLM363235 in network?",
+        OWNER,
+        "Network alternatives in",
+    ),
+    (
+        "policy_details",
+        {"policy_id": "POL218917"},
+        "What is the sum insured on POL218917?",
+        OWNER,
+        "Policy POL218917",
+    ),
+    (
+        "policy_details",
+        {"claim_id": "CLM300210"},
+        "Which policy schedule applies to CLM300210?",
+        OWNER,
+        "Claim CLM300210 is on policy POL218917",
+    ),
+]
+
+
+def _no_synth(messages: list[Any]) -> Any:
+    raise AssertionError("a single SQL-fact intent is a template answer; no synthesis")
+
+
+@pytest.mark.parametrize("persona", [AGENT, "customer"])
+@pytest.mark.parametrize(("intent", "entities", "question", "owner", "expected"), TEMPLATE_CASES)
+def test_AC_06_21_single_sql_fact_turn_is_a_cited_template_answer(
+    graph: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    persona: str,
+    intent: str,
+    entities: dict[str, str],
+    question: str,
+    owner: str,
+    expected: str,
+) -> None:
+    from insurai.agent.answers import TEMPLATE_INTENTS
+    from insurai.settings import get_settings
+    from insurai.tools.registry import TOOLS
+    from insurai.tools.schemas import ToolContext
+
+    assert intent in TEMPLATE_INTENTS
+    install(monkeypatch, {"Plan": [plan_of((intent, entities), question=question)], "Text": _no_synth})
+    recorder = LLMCallRecorder()
+    principal = owner if persona == "customer" else None
+    thread = f"t-tpl-{persona}-{intent}-{next(iter(entities.values()))}"
+    result = run_turn(graph, thread, question, persona, principal, callbacks=[recorder])
+    assert recorder.tagged("prompt:synthesize") == []
+    assert result.verification_passed is True
+    assert expected in result.answer_markdown and result.citations
+    assert "None" not in result.answer_markdown
+    if persona == "customer":  # hidden fields never reach a customer answer
+        claim_id = entities.get("claim_id", "CLM300210")
+        agent_ctx = ToolContext(
+            persona=AGENT, principal_id=None, as_of=get_settings().as_of_date, trace_id="t"
+        )
+        name = TOOLS["get_claim"](agent_ctx, claim_id).customer_name
+        assert name and name not in result.answer_markdown
+
+
+def test_AC_06_21_mixed_plan_still_synthesizes(graph: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = plan_of(
+        ("claim_status", {"claim_id": "CLM300210"}), ("claim_interactions", {"claim_id": "CLM300210"})
+    )
+    install(monkeypatch, {"Plan": [plan], "Text": citing_synth})
+    recorder = LLMCallRecorder()
+    run_turn(graph, "t-tpl-mixed", "Status of CLM300210 and any contacts?", AGENT, callbacks=[recorder])
+    assert recorder.tagged("prompt:synthesize")
+
+
+def test_AC_06_22_false_premise_on_a_claim_status_turn_is_corrected(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan = plan_of(("claim_status", {"claim_id": "CLM300210"}), question="Is CLM300210 pending?")
+    install(monkeypatch, {"Plan": [plan], "Text": _no_synth})
+    result = run_turn(graph, "t-premise-status", "Is CLM300210 pending?", AGENT)
+    assert result.answer_markdown.startswith("CLM300210 is Approved, not pending [claims:CLM300210].")
+    assert result.verification_passed is True

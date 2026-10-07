@@ -1,8 +1,8 @@
 """synthesize (spec 06): answer from evidence only. Deterministic templates when no judgment is needed
-(fast path, all-not-found, abstain); the dossier narrative as is for a claim-analysis turn (it already
-streamed from the dossier's narrate node); otherwise one plain-markdown generator call with synthesize.md,
-streamed to the client (spec 09 `token`). Citations are the labels found in the text; verify checks the
-complete text after the node returns.
+(fast path, a single SQL-fact intent, all-not-found, abstain); the dossier narrative as is for a
+claim-analysis turn (it already streamed from the dossier's narrate node); otherwise one plain-markdown
+generator call with synthesize.md, streamed to the client (spec 09 `token`). Citations are the labels
+found in the text; verify checks the complete text after the node returns.
 """
 
 import html
@@ -12,14 +12,15 @@ from typing import Any
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
+from insurai.agent.answers import claim_status_text, template_draft
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.schemas import AnswerDraft, Evidence, Plan
 from insurai.agent.state import AgentState
 from insurai.agent.trace import llm_events, now_ms
-from insurai.formatting import inr
 from insurai.guardrails.verify import NO_RESULT_KINDS, labels_in
 from insurai.llm.structured import text_call
+from insurai.rules.narrative import premise_correction
 from insurai.settings import get_settings
 from insurai.tools.messages import refusal
 
@@ -38,7 +39,20 @@ def synthesize(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     trace = llm_events(call, turn, start)
     if not text:
         return {"draft": abstain_draft(evidence), "trace": trace}
+    text = with_premise_correction(text, state.get("plan"), evidence, question)
     return {"draft": AnswerDraft(answer_markdown=text, citations=labels_in(text)), "trace": trace}
+
+
+def with_premise_correction(text: str, plan: Plan | None, evidence: list[Evidence], question: str) -> str:
+    """A generated answer on a turn with a claim_status intent leads with the premise correction when the
+    question assumes a status the claim does not have and the model left it out (spec 06 template answers)."""
+    status_ids = {i.id for i in plan.intents if i.type == "claim_status"} if plan else set()
+    for ev in evidence:
+        if ev.intent_id in status_ids and ev.kind == "ClaimView":
+            correction = premise_correction(question, ev.payload["claim_id"], ev.payload.get("claim_status"))
+            if correction and correction not in text:
+                return f"{correction}\n\n{text}"
+    return text
 
 
 def synth_messages(
@@ -75,7 +89,8 @@ def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDr
         lines = list(dict.fromkeys(ev.summary for ev in evidence))
         return AnswerDraft(answer_markdown="\n\n".join(lines))
     if state.get("fast_path") and len(evidence) == 1 and evidence[0].kind == "ClaimView":
-        return fast_path_draft(evidence[0])
+        text = claim_status_text(evidence[0], last_question(state))
+        return AnswerDraft(answer_markdown=text, citations=list(dict.fromkeys(labels_in(text))))
     assessment = state.get("assessment")
     if (
         not state.get("attempts")
@@ -86,6 +101,8 @@ def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDr
         return AnswerDraft(answer_markdown=assessment.narrative, citations=labels_in(assessment.narrative))
     if evidence and all(_unanswered_unfiltered(ev) for ev in evidence):
         return abstain_draft(evidence)  # routing rule 2: no product and no confident clause anywhere
+    if not state.get("attempts"):  # a verify retry goes to the generator with the feedback
+        return template_draft(state.get("plan"), evidence, last_question(state))
     return None
 
 
@@ -109,21 +126,6 @@ def narrative_is_answer(plan: Plan | None) -> bool:
 
 def _unanswered_unfiltered(ev: Evidence) -> bool:
     return ev.kind == "RetrievalResult" and ev.payload.get("unfiltered") and not ev.payload.get("confident")
-
-
-def fast_path_draft(ev: Evidence) -> AnswerDraft:
-    p = ev.payload
-    approved = p.get("approved_amount") or 0
-    text = template(
-        "claim_status_fast_path",
-        claim_id=p["claim_id"],
-        claim_status=p["claim_status"],
-        approved_clause=f", with {inr(approved)} approved" if approved > 0 else "",
-        claim_date=p["claim_date"],
-        claim_amount=inr(p["claim_amount"]),
-        product_name=p["product_name"],
-    )
-    return AnswerDraft(answer_markdown=text, citations=[f"[claims:{p['claim_id']}]"])
 
 
 def abstain_draft(evidence: list[Evidence]) -> AnswerDraft:

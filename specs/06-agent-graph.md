@@ -94,6 +94,17 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
    status, not a request); otherwise `explain` ("Why is my claim pending?", "Give me a summary of this claim").
    Only assess mode may pause for review (Memory, interrupts, streaming). `finalize_plan` also copies the message to
    `intent.question` for the dossier's false-premise check (spec 07).
+9. **Intent pruning** (decided 2026-10-07): `finalize_plan` drops an intent when the message contains none of its
+   trigger words (`config/glossary.yaml` `routing.intent_triggers`, `insurai.agent.routing`). Each list is built from
+   the intent's definition in planner.md, the config lists it names (fast-path status keywords, dossier status and
+   assess words, required document types) and every glossary synonym group sharing a term with it, never from eval
+   questions (a hygiene test checks multi-word triggers against the golden set). A single intent is never pruned; a
+   plan whose every intent would be pruned is kept; intents without a list (policy_question, coverage_compare,
+   analytics, customer_summary, greeting, out_of_scope) are never pruned. Pruned types are in the `plan` trace event.
+10. **Summary and why questions** (decided 2026-10-07): when the message contains a `routing.promote_to_analysis` word
+   (summary, overview, summarise, summarize, why), every claim_status intent becomes claim_analysis in explain mode,
+   whatever assess words the message has. A claim_status intent on a claim that also has a claim_analysis intent is
+   dropped (the dossier covers it). Known limit: "why" in a mixed message also promotes an unrelated claim_status.
 
 ## Prompts (versioned files, IDs logged in trace)
 `config/prompts/planner.md` (15+ few-shot examples covering every intent, multi-intent and clarification),
@@ -126,6 +137,16 @@ after a failed retry is the assessment rendered without an LLM (findings, next s
 reviewer decision), never the policy-wording abstention. The reviewer's note counts as a V3 number source, like
 the question.
 
+**Template answers** (decided 2026-10-07). When the plan has exactly one intent and it is claim_status,
+claim_documents, hospital_check or policy_details, synthesize answers from `config/prompts/templates.md`
+(`insurai.agent.answers`) without a generator call, so no `token` events. Templates read only the persona-filtered
+evidence payload: a field that is absent or None is never rendered, and when a field a template needs is missing the
+generator answers instead. Every line cites a label from that evidence's sources. claim_documents states "No
+documents are missing" when the missing list is empty. claim_status answers (template and fast path) lead with the
+false-premise correction (spec 07 `premise_correction`); a generated answer on a mixed turn with a claim_status
+intent gets the correction prepended when the model left it out. Verify runs as usual; a verify retry goes to the
+generator with the feedback.
+
 ## Memory, interrupts, streaming
 - Checkpointer: `AsyncSqliteSaver` at `paths.checkpoints` for the API (FastAPI is async); `SqliteSaver` for sync scripts; `InMemorySaver` for in-process evals and unit tests. `thread_id` comes from the thread store (spec 09, ADR-009).
 - **History window.** The planner and synthesizer receive the last `agent.history_turns` (default 6) user and assistant turns, trimmed with `langchain_core.messages.trim_messages` by turn count, plus `active_entities`. Tool and evidence messages from earlier turns are never replayed. The full history stays in the checkpoint for display. Add `history_turns: 6` under `agent:` in config/settings.yaml.
@@ -147,7 +168,7 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 
 ## Acceptance criteria
 - [x] AC-06-01 Graph compiles; `draw_mermaid()` output saved to `specs/reference/agent_graph.mmd` and matches the node table.
-- [ ] AC-06-02 Routing over the full golden set: intent set accuracy ≥ 95%, entity exact match ≥ 98%. Measured 2026-10-05 on local qwen3:8b, 68 items, planner.md v0.3.0 (few-shots free of golden IDs and phrasing): intent 0.8971, entity 0.9853. Entity target met; intent below target, all 7 misses are model misses (tasks.md M4).
+- [x] AC-06-02 Routing over the full golden set: intent set accuracy ≥ 95%, entity exact match ≥ 98%. Measured 2026-10-05 on local qwen3:8b, 68 items, planner.md v0.3.0 (few-shots free of golden IDs and phrasing): intent 0.8971, entity 0.9853. Entity target met; intent below target, all 7 misses are model misses (tasks.md M4). Re-measured 2026-10-07 after rules 9–10 (pruning, promotion), 75 items: intent 0.9733, entity 1.0; misses EVAL021 and EVAL034 (model misses, single intents).
 - [x] AC-06-03 "Status of CLM300500 and is drunk driving covered under Motor Protect Comprehensive?" → 2 intents; the trace shows overlapping worker spans.
 - [x] AC-06-04 Turn 1 "Analyze CLM300210", turn 2 "which documents are missing?" → turn 2 resolves CLM300210.
 - [x] AC-06-05 "status of CLM300210" makes zero LLM calls except the verifier's deterministic checks (callback counter = 0).
@@ -163,6 +184,22 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 - [x] AC-06-16 Claim-analysis turns answer with the dossier narrative: no second generator call, narrate tokens stream as attempt 1, a guarantee phrase in the narrative is never streamed (`draft_hidden`) and the final answer carries the mandated wording; a mixed turn does not stream the narrative and still synthesizes.
 - [x] AC-06-17 False premise: "Why is CLM300210 pending?" (it is Approved) → the answer opens with "CLM300210 is Approved, not pending [claims:CLM300210]." and passes verification.
 - [x] AC-06-18 Fallback: when both attempts fail verification on a claim-analysis turn, the answer is the assessment rendered without an LLM (no policy-wording abstention); `[eN]` evidence-block ids fail V1 with feedback that names them; a number from the reviewer's note passes V3.
+- [x] AC-06-19 Intent pruning: [claim_documents, hospital_check] on a hospital-network question → [hospital_check]; a
+  stray claim_analysis next to a policy question is pruned; a single intent is never pruned and an all-pruned plan is
+  kept; trigger lists come from definitions, config and glossary synonym groups; every expected intent of a
+  multi-intent golden item has a trigger (safety net); no multi-word trigger copies golden phrasing
+  (tests/agent/test_agent_units.py, tests/agent/test_prompt_hygiene.py).
+- [x] AC-06-20 Summary, overview, summarise/summarize and why questions planned as claim_status → claim_analysis with
+  mode explain and the question set ("Why did you reject …" still explains); a claim_status on the analysed claim
+  collapses into the analysis.
+- [x] AC-06-21 Template answers: a single claim_status, claim_documents, hospital_check (by ID, via claim, with
+  network alternatives) or policy_details (by ID, via claim) turn makes no synthesize call, is cited with evidence
+  labels and passes verify, for the agent and for the claim's owner (customer persona: no "None", no hidden field);
+  an empty missing list says "No documents are missing"; a mixed plan still synthesizes; a verify retry uses the
+  generator (tests/agent/test_answers.py, tests/agent/test_agent_graph.py).
+- [x] AC-06-22 False premise on claim_status: "Is CLM300210 pending?" routed to claim_status → the answer opens with
+  "CLM300210 is Approved, not pending [claims:CLM300210]." and passes verify; a generated answer on a mixed turn gets
+  the same correction.
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
 
 - [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.

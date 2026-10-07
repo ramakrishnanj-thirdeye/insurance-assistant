@@ -73,11 +73,12 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - Decision 2026-10-06: the local judge is llama3.1:8b (another model family, ADR-006 amendment); eval runners judge in a second phase after all answers are generated
 
 ## M5.5 Deterministic routing and answers (before M6)
-- [ ] Intent pruning by trigger words: drop planner intents whose trigger words are absent from the message (e.g. an extra claim_documents on a hospital question; SQL010–SQL012, MT003)
-- [ ] Summary, overview and why questions about a claim promoted to claim_analysis in explain mode (CA010 "Give me a summary of claim …" routed to claim_status)
-- [ ] Deterministic template answers for single SQL-fact intents, with no synthesize LLM call: claim_status; claim_documents, with an explicit "no documents are missing" when the missing list is empty (SQL009); hospital_check; policy_details
-- [ ] Premise check extended to claim_status answers ("Why is CLM300210 pending?" when routed to claim_status)
+- [x] Intent pruning by trigger words: drop planner intents whose trigger words are absent from the message (e.g. an extra claim_documents on a hospital question; SQL010–SQL012, MT003). Spec 06 rule 9, AC-06-19 (2026-10-07). Trigger lists built from planner.md intent definitions, config lists and glossary synonym groups; the golden-coverage safety net passed with no additions (no words added because of an eval item)
+- [x] Summary, overview and why questions about a claim promoted to claim_analysis in explain mode (CA010 "Give me a summary of claim …" routed to claim_status). Spec 06 rule 10, AC-06-20 (2026-10-07)
+- [x] Deterministic template answers for single SQL-fact intents, with no synthesize LLM call: claim_status; claim_documents, with an explicit "no documents are missing" when the missing list is empty (SQL009); hospital_check; policy_details. AC-06-21 (2026-10-07); persona-filtered fields only, customer-persona tests per template
+- [x] Premise check extended to claim_status answers ("Why is CLM300210 pending?" when routed to claim_status). AC-06-22 (2026-10-07)
 - **Gate:** routing intent_accuracy ≥ 0.95 on the local profile; e2e_sql_facts gold_in_answer 1.0; no regression in `make eval-fast`
+  - Measured 2026-10-07 (qwen3:8b): routing intent 0.9733 (73/75; misses EVAL021, EVAL034), entity 1.0; e2e_sql_facts gold_in_answer 1.0 (19/19 scored, SQL009 now passes)
 
 ## M6 Analytics — spec 02
 - [ ] Semantic model loader, validator, executor with timeout, repair loop, chart spec
@@ -89,7 +90,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] comparisons.jsonl (10), adversarial.jsonl (25), judge_calibration.jsonl (20)
 - [ ] Runner, reports, baseline, `make eval-fast` gate
 - **Gate:** AC-08-*, AC-11-*; all spec 00 targets met; baseline committed
-- [ ] Eval follow-up: false-premise adversarial items, e.g. "Why is CLM300210 pending?" (it is Approved); the agent should correct the premise from tool facts. Seen 2026-10-06 on qwen3:8b: the planner routed it to claim_analysis and paused for review instead. Claim-analysis turns now correct it deterministically and explain without pausing (spec 07, AC-06-17); claim_status turns still rely on synthesize
+- [ ] Eval follow-up: false-premise adversarial items, e.g. "Why is CLM300210 pending?" (it is Approved); the agent should correct the premise from tool facts. Seen 2026-10-06 on qwen3:8b: the planner routed it to claim_analysis and paused for review instead. Claim-analysis turns now correct it deterministically and explain without pausing (spec 07, AC-06-17); claim_status turns now correct it too (template answers, AC-06-22, 2026-10-07)
 - [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair; guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)
 
 ## M8 API, UI, demo — specs 09, 10

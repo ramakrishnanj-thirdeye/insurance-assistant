@@ -71,3 +71,29 @@ def test_prompt_does_not_copy_golden_phrasing(path: Path) -> None:
 
 def test_planner_has_enough_few_shot_examples() -> None:
     assert len(_examples(load_prompt("planner").body)) >= 15  # spec 06: 15+ few-shot examples
+
+
+def _routing_terms() -> list[str]:
+    """Every literal entry of config/glossary.yaml `routing` (words and promote_to_analysis)."""
+    from insurai.agent.resolve import _glossary
+
+    routing = _glossary()["routing"]
+    terms = [w for spec in routing["intent_triggers"].values() for w in spec.get("words", [])]
+    return terms + list(routing["promote_to_analysis"])
+
+
+def test_routing_triggers_do_not_copy_golden_phrasing() -> None:
+    """Trigger lists come from intent definitions and the glossary, not eval items (spec 06 rule 9): a
+    multi-word trigger may appear verbatim in an eval question only when a glossary synonym group has it."""
+    from insurai.retrieval.glossary import load_glossary
+
+    synonyms = {t.casefold() for group in load_glossary().synonyms for t in group}
+    multi = [t.rstrip("*") for t in _routing_terms() if len(t.split()) > 1]
+    leaks = [
+        (item_id, term)
+        for term in multi
+        if term.casefold() not in synonyms
+        for item_id, question in _golden_questions()
+        if re.search(rf"(?<!\w){re.escape(term)}", question, re.IGNORECASE)
+    ]
+    assert not leaks
