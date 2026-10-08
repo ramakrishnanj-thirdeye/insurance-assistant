@@ -1,9 +1,13 @@
 """analytics slice (spec 11, spec 02 AC-02-07): dataset shape, gold SQL and the exec_accuracy scorer."""
 
 import json
+from typing import Any
 
 import pytest
+import sqlglot
+from sqlglot import exp
 
+from insurai import db
 from insurai.eval.analytics import (
     DATASET,
     gold_rows,
@@ -91,3 +95,45 @@ def test_AC_02_07_order_counts_only_for_order_by_with_limit() -> None:
     assert ordered("SELECT a FROM t ORDER BY a DESC LIMIT 5")
     assert not ordered("SELECT a FROM t ORDER BY a DESC")
     assert not ordered("SELECT a FROM t LIMIT 5")
+
+
+def _tie_at_limit(sql: str) -> tuple[Any, Any] | None:
+    """For `ORDER BY … LIMIT n`, the ORDER BY key values at positions n and n + 1 when they are equal (the
+    top-n rows are then not determined by the query); None when there is no such tie."""
+    root = sqlglot.parse_one(sql, dialect="duckdb")
+    order, limit = root.args.get("order"), root.args.get("limit")
+    if order is None or not isinstance(limit, exp.Limit):
+        return None
+    n = int(limit.expression.this)
+    probe = root.copy()
+    for i, o in enumerate(order.expressions):
+        key = o.this
+        if isinstance(key, exp.Literal) and key.is_int:  # ORDER BY 2: the second projection
+            key = root.expressions[int(key.this) - 1].unalias()
+        probe.select(exp.alias_(key.copy(), f"_tie_key_{i}"), copy=False)
+    probe.limit(n + 1, copy=False)
+    with db.connect(read_only=True) as con:
+        rows = con.execute(probe.sql(dialect="duckdb")).fetchall()
+    width = len(order.expressions)
+    if len(rows) <= n or rows[n - 1][-width:] != rows[n][-width:]:
+        return None
+    return rows[n - 1][-width:], rows[n][-width:]
+
+
+@pytest.mark.integration
+def test_AC_02_07_top_n_gold_queries_have_no_tie_at_the_limit() -> None:
+    if not get_settings().paths.warehouse.exists():
+        pytest.skip("data/warehouse.duckdb not built: run `make data`")
+    ties = {i.id: tie for i in ITEMS if (tie := _tie_at_limit(i.gold_sql))}
+    assert not ties
+
+
+@pytest.mark.integration
+def test_tie_detector_finds_the_fifth_place_tie() -> None:
+    """Fifth and sixth biggest claims both claimed 1,400,000 (why ANA011 asks for four)."""
+    if not get_settings().paths.warehouse.exists():
+        pytest.skip("data/warehouse.duckdb not built: run `make data`")
+    biggest = "SELECT claim_id, claim_amount FROM silver.claims ORDER BY claim_amount DESC LIMIT {n}"
+    assert _tie_at_limit(biggest.format(n=5)) == ((1400000,), (1400000,))
+    assert _tie_at_limit(biggest.format(n=4)) is None
+    assert _tie_at_limit("SELECT claim_id, claim_amount FROM silver.claims ORDER BY 2 DESC LIMIT 5")

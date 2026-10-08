@@ -19,7 +19,7 @@ tables:
       - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true, sample_values: [Health, Motor, Travel],
          synonyms: [line of business, LOB]}
       - {name: product_name, expr: product_name, data_type: varchar, is_enum: true, sample_values: ["Car Shield Plus", "Critical Care Elite", "Family Care Gold", "Global Travel Secure", "Health Secure Plus", "Maternity Protect", "Motor Protect Comprehensive", "Senior Health Shield", "Student Travel Protect", "Two Wheeler Secure"], synonyms: [product, plan, policy name]}
-      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true, sample_values: ["Approved", "Partially Approved", "Pending Documents", "Rejected", "Submitted", "Under Review"],
+      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true,
          sample_values: [Approved, Partially Approved, Rejected, Under Review, Pending Documents, Submitted],
          synonyms: [status, claim state]}
       - {name: diagnosis_or_loss_type, expr: diagnosis_or_loss_type, data_type: varchar, is_enum: true, sample_values: ["Accidental Damage", "Accidental Injury", "Appendicitis", "Cardiac Procedure", "Cataract", "Dengue", "Diabetes Complication", "Flight Delay", "Flood Damage", "Fracture", "Glass Damage", "Hypertension", "Kidney Stone", "Lost Baggage", "Maternity", "Medical Emergency", "Passport Loss", "Pneumonia", "Theft", "Third Party Damage", "Trip Cancellation", "Viral Fever"],
@@ -57,11 +57,11 @@ tables:
     dimensions:
       - {name: policy_id, expr: policy_id, data_type: varchar, unique: true}
       - {name: customer_id, expr: customer_id, data_type: varchar}
-      - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true}
-      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true}
+      - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true, sample_values: ["Health", "Motor", "Travel"]}
+      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true, sample_values: ["Car Shield Plus", "Critical Care Elite", "Family Care Gold", "Global Travel Secure", "Health Secure Plus", "Maternity Protect", "Motor Protect Comprehensive", "Senior Health Shield", "Student Travel Protect", "Two Wheeler Secure"]}
       - {name: policy_status, expr: policy_status, data_type: varchar, is_enum: true, sample_values: [Active, Expired, Cancelled],
          description: "Recorded status; stale for 50,811 policies. Prefer effective_status."}
-      - {name: effective_status, expr: effective_status, data_type: varchar, is_enum: true, sample_values: ["Cancelled", "In Force", "Lapsed"],
+      - {name: effective_status, expr: effective_status, data_type: varchar, is_enum: true,
          sample_values: [In Force, Lapsed, Cancelled, Not Started], synonyms: [active, in force, current]}
       - {name: co_pay_pct, expr: co_pay_pct, data_type: number, sample_values: [0, 10, 20]}
       - {name: waiting_period_days, expr: waiting_period_days, data_type: number, sample_values: [0, 30, 90, 365, 730]}
@@ -86,8 +86,8 @@ tables:
       - {name: customer_id, expr: customer_id, data_type: varchar, unique: true}
       - {name: customer_name, expr: customer_name, data_type: varchar, pii: true}
       - {name: gender, expr: gender, data_type: varchar, is_enum: true, sample_values: [Female, Male, Other]}
-      - {name: city, expr: city, data_type: varchar, is_enum: true}
-      - {name: state, expr: state, data_type: varchar, is_enum: true}
+      - {name: city, expr: city, data_type: varchar, is_enum: true, sample_values: ["Ahmedabad", "Bengaluru", "Chennai", "Delhi", "Hyderabad", "Jaipur", "Kochi", "Kolkata", "Mumbai", "Pune"]}
+      - {name: state, expr: state, data_type: varchar, is_enum: true, sample_values: ["Delhi", "Gujarat", "Karnataka", "Kerala", "Maharashtra", "Rajasthan", "Tamil Nadu", "Telangana", "West Bengal"]}
       - {name: kyc_status, expr: kyc_status, data_type: varchar, is_enum: true, sample_values: [Verified, Pending, Rejected]}
       - {name: risk_segment, expr: risk_segment, data_type: varchar, is_enum: true, sample_values: [Low, Medium, High]}
     time_dimensions:
@@ -102,21 +102,26 @@ tables:
     dimensions:
       - {name: hospital_id, expr: hospital_id, data_type: varchar, unique: true}
       - {name: hospital_name, expr: hospital_name, data_type: varchar}
-      - {name: city, expr: city, data_type: varchar, is_enum: true}
+      - {name: city, expr: city, data_type: varchar, is_enum: true, sample_values: ["Ahmedabad", "Bengaluru", "Chennai", "Delhi", "Hyderabad", "Jaipur", "Kochi", "Kolkata", "Mumbai", "Pune"]}
       - {name: network_status, expr: network_status, data_type: varchar, is_enum: true, sample_values: [Network, Non-Network],
          synonyms: [empanelled, tie-up]}
-      - {name: specialty, expr: specialty, data_type: varchar, is_enum: true}
+      - {name: specialty, expr: specialty, data_type: varchar, is_enum: true, sample_values: ["Cardiology", "General Medicine", "Maternity", "Multi-specialty", "Oncology", "Orthopedics"]}
 
   - name: claim_documents
-    description: Required-vs-present document checklist per claim (gold), including required types with no record.
+    description: >-
+      Claim documents (gold checklist): one row for every document record of a claim, whether or not that
+      document type is required, plus one row with checklist_status 'No record' for each required document type
+      the claim has no record of. Questions about documents in general cover all rows; filter on `required` only
+      when the question is about required documents.
     base_table: {database: warehouse, schema: gold, table: claim_doc_checklist}
     dimensions:
       - {name: claim_id, expr: claim_id, data_type: varchar}
-      - {name: document_type, expr: document_type, data_type: varchar, is_enum: true}
-      - {name: required, expr: required, data_type: boolean}
-      - {name: checklist_status, expr: checklist_status, data_type: varchar, is_enum: true, sample_values: ["Missing", "No record", "Pending verification", "Rejected", "Verified"],
+      - {name: document_type, expr: document_type, data_type: varchar, is_enum: true, sample_values: ["Cancelled Cheque", "Claim Form", "Diagnostic Report", "Discharge Summary", "Hospital Bill", "ID Proof", "Policy Copy", "Prescription"]}
+      - {name: required, expr: required, data_type: boolean,
+         description: "TRUE when the document type is required for this claim's line of business. Use it only for questions about required documents"}
+      - {name: checklist_status, expr: checklist_status, data_type: varchar, is_enum: true,
          sample_values: [Verified, Pending verification, Rejected, Missing, No record]}
-      - {name: file_type, expr: file_type, data_type: varchar, is_enum: true}
+      - {name: file_type, expr: file_type, data_type: varchar, is_enum: true, sample_values: ["JPG", "PDF", "PNG"]}
 
   - name: interactions
     description: Customer service interactions. Reach customers ONLY through claim_id (ADR-008).
@@ -126,10 +131,10 @@ tables:
       - {name: interaction_id, expr: interaction_id, data_type: varchar, unique: true}
       - {name: claim_id, expr: claim_id, data_type: varchar}
       - {name: claim_owner_id, expr: claim_owner_id, data_type: varchar}
-      - {name: channel, expr: channel, data_type: varchar, is_enum: true}
-      - {name: intent, expr: intent, data_type: varchar, is_enum: true}
-      - {name: sentiment, expr: sentiment, data_type: varchar, is_enum: true}
-      - {name: resolution_status, expr: resolution_status, data_type: varchar, is_enum: true, sample_values: ["Escalated", "Pending", "Resolved"],
+      - {name: channel, expr: channel, data_type: varchar, is_enum: true, sample_values: ["Branch", "Call Center", "Email", "Mobile App", "Web"]}
+      - {name: intent, expr: intent, data_type: varchar, is_enum: true, sample_values: ["Cashless Hospital", "Claim Status", "Coverage Query", "Document Requirement", "General Query", "Policy Renewal", "Rejection Explanation"]}
+      - {name: sentiment, expr: sentiment, data_type: varchar, is_enum: true, sample_values: ["Negative", "Neutral", "Positive"]}
+      - {name: resolution_status, expr: resolution_status, data_type: varchar, is_enum: true,
          sample_values: [Resolved, Pending, Escalated]}
     time_dimensions:
       - {name: interaction_date, expr: interaction_date, data_type: date}
@@ -146,8 +151,8 @@ tables:
     primary_key: {columns: [claim_id]}
     dimensions:
       - {name: claim_id, expr: claim_id, data_type: varchar, unique: true}
-      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true}
-      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true}
+      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true, sample_values: ["Car Shield Plus", "Critical Care Elite", "Family Care Gold", "Global Travel Secure", "Health Secure Plus", "Maternity Protect", "Motor Protect Comprehensive", "Senior Health Shield", "Student Travel Protect", "Two Wheeler Secure"]}
+      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true, sample_values: ["Approved", "Partially Approved", "Pending Documents", "Rejected", "Submitted", "Under Review"]}
       - {name: R01, expr: R01, data_type: varchar, is_enum: true, sample_values: [pass, fail],
          description: "Policy in force on the claim date; 'fail' = claim date outside the policy period (blocker)",
          synonyms: [outside the policy period, out of policy period, policy not in force, claim after expiry]}

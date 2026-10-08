@@ -115,3 +115,21 @@ def test_AC_02_01_sample_values_exist_in_the_data(warehouse: duckdb.DuckDBPyConn
                 {str(v) for v in c.sample_values} - present - POSSIBLE_BUT_ABSENT.get((t.name, c.name), set())
             )
             assert not missing, f"{t.name}.{c.name}: {sorted(missing)}"
+
+
+class _NoDuplicateKeys(yaml.SafeLoader):
+    """PyYAML keeps the last of two equal keys silently; a duplicate in the model is always a mistake."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:  # type: ignore[override]
+        keys = [self.construct_object(k, deep=deep) for k, _ in node.value]
+        duplicates = {k for k in keys if keys.count(k) > 1}
+        if duplicates:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"duplicate keys {duplicates}", node.start_mark
+            )
+        return super().construct_mapping(node, deep=deep)
+
+
+@pytest.mark.unit
+def test_AC_02_01_model_yaml_has_no_duplicate_keys() -> None:
+    yaml.load(SEMANTIC_MODEL_FILE.read_text(encoding="utf-8"), Loader=_NoDuplicateKeys)  # noqa: S506
