@@ -37,7 +37,13 @@ def test_AC_06_02_routing_metrics_set_equality_and_entity_exact() -> None:
 def test_routing_items_cover_every_golden_slice_once() -> None:
     items = load_items()
     assert len({i.id for i in items}) == len(items)
-    assert {i.slice for i in items} >= {"sql_facts", "policy_clauses", "claim_analysis", "multi_turn"}
+    assert {i.slice for i in items} >= {
+        "sql_facts",
+        "policy_clauses",
+        "claim_analysis",
+        "multi_turn",
+        "analytics",
+    }
     multi = [i for i in items if i.slice == "multi_turn"]
     assert len(multi) == 10 and all(len(i.turns) >= 2 for i in multi)
 

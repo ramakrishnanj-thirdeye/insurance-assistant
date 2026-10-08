@@ -18,14 +18,14 @@ tables:
       - {name: policy_id, expr: policy_id, data_type: varchar}
       - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true, sample_values: [Health, Motor, Travel],
          synonyms: [line of business, LOB]}
-      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true, synonyms: [product, plan, policy name]}
-      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true,
+      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true, sample_values: ["Car Shield Plus", "Critical Care Elite", "Family Care Gold", "Global Travel Secure", "Health Secure Plus", "Maternity Protect", "Motor Protect Comprehensive", "Senior Health Shield", "Student Travel Protect", "Two Wheeler Secure"], synonyms: [product, plan, policy name]}
+      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true, sample_values: ["Approved", "Partially Approved", "Pending Documents", "Rejected", "Submitted", "Under Review"],
          sample_values: [Approved, Partially Approved, Rejected, Under Review, Pending Documents, Submitted],
          synonyms: [status, claim state]}
-      - {name: diagnosis_or_loss_type, expr: diagnosis_or_loss_type, data_type: varchar, is_enum: true,
+      - {name: diagnosis_or_loss_type, expr: diagnosis_or_loss_type, data_type: varchar, is_enum: true, sample_values: ["Accidental Damage", "Accidental Injury", "Appendicitis", "Cardiac Procedure", "Cataract", "Dengue", "Diabetes Complication", "Flight Delay", "Flood Damage", "Fracture", "Glass Damage", "Hypertension", "Kidney Stone", "Lost Baggage", "Maternity", "Medical Emergency", "Passport Loss", "Pneumonia", "Theft", "Third Party Damage", "Trip Cancellation", "Viral Fever"],
          synonyms: [diagnosis, illness, loss type, cause of claim]}
       - {name: hospital_id, expr: hospital_id, data_type: varchar, description: Only populated for Health claims}
-      - {name: rejection_or_adjustment_reason, expr: rejection_or_adjustment_reason, data_type: varchar, is_enum: true,
+      - {name: rejection_or_adjustment_reason, expr: rejection_or_adjustment_reason, data_type: varchar, is_enum: true, sample_values: ["Co-pay applied", "Deductible applied", "Insufficient documents", "Non-disclosure", "Non-payable items", "Policy exclusion", "Policy inactive", "Sub-limit exceeded", "Waiting period not completed"],
          synonyms: [rejection reason, adjustment reason, why rejected]}
       - {name: manual_review_flag, expr: manual_review_flag, data_type: number, sample_values: [0, 1]}
       - {name: in_policy_period, expr: in_policy_period, data_type: boolean, description: Claim date within policy start and end}
@@ -60,8 +60,8 @@ tables:
       - {name: policy_type, expr: policy_type, data_type: varchar, is_enum: true}
       - {name: product_name, expr: product_name, data_type: varchar, is_enum: true}
       - {name: policy_status, expr: policy_status, data_type: varchar, is_enum: true, sample_values: [Active, Expired, Cancelled],
-         description: Recorded status; stale for 50,811 policies. Prefer effective_status.}
-      - {name: effective_status, expr: effective_status, data_type: varchar, is_enum: true,
+         description: "Recorded status; stale for 50,811 policies. Prefer effective_status."}
+      - {name: effective_status, expr: effective_status, data_type: varchar, is_enum: true, sample_values: ["Cancelled", "In Force", "Lapsed"],
          sample_values: [In Force, Lapsed, Cancelled, Not Started], synonyms: [active, in force, current]}
       - {name: co_pay_pct, expr: co_pay_pct, data_type: number, sample_values: [0, 10, 20]}
       - {name: waiting_period_days, expr: waiting_period_days, data_type: number, sample_values: [0, 30, 90, 365, 730]}
@@ -114,7 +114,7 @@ tables:
       - {name: claim_id, expr: claim_id, data_type: varchar}
       - {name: document_type, expr: document_type, data_type: varchar, is_enum: true}
       - {name: required, expr: required, data_type: boolean}
-      - {name: checklist_status, expr: checklist_status, data_type: varchar, is_enum: true,
+      - {name: checklist_status, expr: checklist_status, data_type: varchar, is_enum: true, sample_values: ["Missing", "No record", "Pending verification", "Rejected", "Verified"],
          sample_values: [Verified, Pending verification, Rejected, Missing, No record]}
       - {name: file_type, expr: file_type, data_type: varchar, is_enum: true}
 
@@ -129,11 +129,80 @@ tables:
       - {name: channel, expr: channel, data_type: varchar, is_enum: true}
       - {name: intent, expr: intent, data_type: varchar, is_enum: true}
       - {name: sentiment, expr: sentiment, data_type: varchar, is_enum: true}
-      - {name: resolution_status, expr: resolution_status, data_type: varchar, is_enum: true,
+      - {name: resolution_status, expr: resolution_status, data_type: varchar, is_enum: true, sample_values: ["Escalated", "Pending", "Resolved"],
          sample_values: [Resolved, Pending, Escalated]}
     time_dimensions:
       - {name: interaction_date, expr: interaction_date, data_type: date}
     blocked_columns: [logged_customer_id]   # never selectable or joinable
+
+  - name: rule_results
+    description: >-
+      One row per claim with the outcome of every adjudication rule (spec 07, `make rules`). Rule columns hold
+      pass, fail, review or not_applicable; a rule fails when its value is 'fail'. Blocker rules are R01-R07,
+      R09 is a warning, R08 is info, R10-R12 escalate. C1-C4 and P1 are precomputed TRUE/FALSE flags for the
+      inconsistencies and insights described below: filter on them directly (WHERE C1) rather than combining
+      rule columns. Supervisor persona only.
+    base_table: {database: warehouse, schema: gold, table: rule_results}
+    primary_key: {columns: [claim_id]}
+    dimensions:
+      - {name: claim_id, expr: claim_id, data_type: varchar, unique: true}
+      - {name: product_name, expr: product_name, data_type: varchar, is_enum: true}
+      - {name: claim_status, expr: claim_status, data_type: varchar, is_enum: true}
+      - {name: R01, expr: R01, data_type: varchar, is_enum: true, sample_values: [pass, fail],
+         description: "Policy in force on the claim date; 'fail' = claim date outside the policy period (blocker)",
+         synonyms: [outside the policy period, out of policy period, policy not in force, claim after expiry]}
+      - {name: R02, expr: R02, data_type: varchar, is_enum: true, sample_values: [pass, fail],
+         description: "Policy not cancelled; 'fail' = claim on a cancelled policy (blocker)",
+         synonyms: [cancelled policy]}
+      - {name: R03, expr: R03, data_type: varchar, is_enum: true, sample_values: [pass, fail, not_applicable],
+         description: "Schedule waiting period completed; 'fail' = claim inside the policy waiting period (blocker)",
+         synonyms: [within waiting period, waiting period not served]}
+      - {name: R04, expr: R04, data_type: varchar, is_enum: true, sample_values: [pass, fail, not_applicable],
+         description: "Product waiting period for this condition completed (blocker; a warning when R04_severity = 1)",
+         synonyms: [condition waiting period, specific waiting period]}
+      - {name: R04_severity, expr: R04_severity, data_type: number, sample_values: [0, 1],
+         description: "0 = R04 is a blocker; 1 = R04 is a warning because the waiting basis is an assumption"}
+      - {name: R05, expr: R05, data_type: varchar, is_enum: true, sample_values: [pass, fail, review],
+         description: "Loss type covered by the product wording; 'fail' = not covered, 'review' = conditional or unclear (blocker)",
+         synonyms: [not covered, excluded loss, coverage check]}
+      - {name: R06, expr: R06, data_type: varchar, is_enum: true, sample_values: [pass, fail],
+         description: "Required documents present; 'fail' = a required document is missing (blocker)",
+         synonyms: [missing documents]}
+      - {name: R07, expr: R07, data_type: varchar, is_enum: true, sample_values: [pass, fail, review],
+         description: "Required documents verified; 'review' = pending verification, 'fail' = a document was rejected (blocker)",
+         synonyms: [unverified documents, rejected documents]}
+      - {name: R08, expr: R08, data_type: varchar, is_enum: true, sample_values: [pass, fail, not_applicable],
+         description: "Health claim at a network hospital; 'fail' = non-network hospital (info)",
+         synonyms: [non-network hospital]}
+      - {name: R09, expr: R09, data_type: varchar, is_enum: true, sample_values: [pass, fail, not_applicable],
+         description: "Approved amount within the expected payable and the sum insured; 'fail' = paid above the expected payable (warning)",
+         synonyms: [overpaid, paid above payable, overpayment]}
+      - {name: R10, expr: R10, data_type: varchar, is_enum: true, sample_values: [pass, fail],
+         description: "Fraud score below the review threshold; 'fail' = high fraud score (escalate)",
+         synonyms: [high fraud score, fraud flag]}
+      - {name: R11, expr: R11, data_type: varchar, is_enum: true, sample_values: [pass, fail],
+         description: "Not a high-value claim; 'fail' = high-value claim (escalate)",
+         synonyms: [high value claim]}
+      - {name: R12, expr: R12, data_type: varchar, is_enum: true, sample_values: [pass, fail],
+         description: "No manual review flag and KYC verified; 'fail' = review flag or KYC not verified (escalate)",
+         synonyms: [review flag, KYC not verified]}
+      - {name: C1, expr: C1, data_type: boolean,
+         description: "Approved or partially approved although a blocker rule failed",
+         synonyms: [paid despite blockers, approved despite blockers, leakage]}
+      - {name: C2, expr: C2, data_type: boolean,
+         description: "Status Pending Documents although no document is missing or unverified",
+         synonyms: [pending documents but none missing]}
+      - {name: C3, expr: C3, data_type: boolean,
+         description: "Rejected for insufficient documents although the documents are complete",
+         synonyms: [rejected for documents but complete]}
+      - {name: C4, expr: C4, data_type: boolean,
+         description: "Rejected for the waiting period although the waiting period was completed",
+         synonyms: [rejected for waiting period but completed]}
+      - {name: P1, expr: P1, data_type: boolean,
+         description: "Maternity claim approved or partially approved on a product whose wording excludes maternity",
+         synonyms: [maternity paid where excluded, maternity paid on excluding product]}
+    filters:
+      - {name: paid_claims, expr: "claim_status IN ('Approved', 'Partially Approved')", synonyms: [approved claims, settled claims]}
 
 relationships:
   - {name: claims_to_policies, left_table: claims, right_table: policies, join_type: inner, relationship_type: many_to_one,
@@ -147,6 +216,8 @@ relationships:
   - {name: documents_to_claims, left_table: claim_documents, right_table: claims, join_type: inner, relationship_type: many_to_one,
      relationship_columns: [{left_column: claim_id, right_column: claim_id}]}
   - {name: interactions_to_claims, left_table: interactions, right_table: claims, join_type: inner, relationship_type: many_to_one,
+     relationship_columns: [{left_column: claim_id, right_column: claim_id}]}
+  - {name: rule_results_to_claims, left_table: rule_results, right_table: claims, join_type: inner, relationship_type: one_to_one,
      relationship_columns: [{left_column: claim_id, right_column: claim_id}]}
 
 verified_queries:               # tested against the warehouse; also seeds the sql_examples collection (spec 04)
@@ -222,3 +293,19 @@ verified_queries:               # tested against the warehouse; also seeds the s
     sql: >-
       SELECT intent, COUNT(*) FILTER (WHERE sentiment = 'Negative') AS negative, COUNT(*) AS total
       FROM silver.customer_interactions GROUP BY 1 ORDER BY negative DESC
+  - name: approved_outside_policy_period
+    question: How many approved claims fall outside their policy period?
+    sql: >-
+      SELECT claim_status, COUNT(*) AS claims FROM gold.rule_results
+      WHERE claim_status IN ('Approved', 'Partially Approved') AND R01 = 'fail' GROUP BY 1 ORDER BY claims DESC
+  - name: maternity_paid_where_excluded_by_product
+    question: Which products paid maternity claims although their wording excludes maternity?
+    sql: >-
+      SELECT product_name, COUNT(*) AS maternity_claims_paid FROM gold.rule_results
+      WHERE P1 GROUP BY 1 ORDER BY maternity_claims_paid DESC
+  - name: approved_paid_in_full_despite_copay
+    question: How many approved claims were paid in full even though the policy has a co-pay?
+    sql: >-
+      SELECT COUNT(*) AS claims_paid_in_full FROM silver.claims c
+      JOIN silver.policies p ON p.policy_id = c.policy_id
+      WHERE c.claim_status = 'Approved' AND p.co_pay_pct > 0 AND c.approved_amount = c.claim_amount

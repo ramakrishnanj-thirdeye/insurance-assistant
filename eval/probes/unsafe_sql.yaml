@@ -1,0 +1,46 @@
+# Unsafe or ungoverned SQL the spec 02 validator must reject (AC-02-03). Shared by
+# tests/semantic/test_sql_validate.py and the analytics eval slice (metric unsafe_blocked, target 1.0).
+# persona defaults to supervisor, the widest analytics persona.
+version: 1
+probes:
+  - {id: insert, reason: not_select, sql: "INSERT INTO silver.claims (claim_id) VALUES ('CLM1')"}
+  - {id: update, reason: not_select, sql: "UPDATE silver.claims SET approved_amount = 0"}
+  - {id: delete, reason: not_select, sql: "DELETE FROM silver.claims"}
+  - {id: create, reason: not_select, sql: "CREATE TABLE silver.x AS SELECT * FROM silver.claims"}
+  - {id: drop, reason: not_select, sql: "DROP TABLE silver.claims"}
+  - {id: two_statements, reason: multi_statement, sql: "SELECT COUNT(*) FROM silver.claims; DROP TABLE silver.claims"}
+  - {id: read_csv, reason: forbidden_function, sql: "SELECT * FROM read_csv('data/raw/claims.csv')"}
+  - {id: read_csv_auto, reason: forbidden_function, sql: "SELECT * FROM read_csv_auto('data/raw/claims.csv')"}
+  - {id: read_parquet, reason: forbidden_function, sql: "SELECT * FROM read_parquet('x.parquet')"}
+  - {id: glob, reason: forbidden_function, sql: "SELECT * FROM glob('data/*')"}
+  - {id: file_as_table, reason: unknown_table, sql: "SELECT * FROM 'data/raw/claims.csv'"}
+  - {id: copy_to, reason: not_select, sql: "COPY silver.claims TO 'claims.csv'"}
+  - {id: attach, reason: not_select, sql: "ATTACH 'other.duckdb' AS other"}
+  - {id: pragma, reason: not_select, sql: "PRAGMA table_info('silver.claims')"}
+  - {id: set, reason: not_select, sql: "SET enable_external_access = true"}
+  - {id: install, reason: not_select, sql: "INSTALL httpfs"}
+  - {id: load, reason: not_select, sql: "LOAD httpfs"}
+  - {id: call, reason: not_select, sql: "CALL pragma_version()"}
+  - {id: getvariable, reason: forbidden_function, sql: "SELECT getvariable('as_of') AS as_of"}
+  - {id: unknown_table, reason: unknown_table, sql: "SELECT * FROM silver.payments"}
+  - {id: unqualified_table, reason: unknown_table, sql: "SELECT COUNT(*) FROM claims"}
+  - {id: raw_layer_table, reason: unknown_table, sql: "SELECT COUNT(*) FROM bronze.claims"}
+  - {id: unknown_column, reason: unknown_column, sql: "SELECT claim_ref FROM silver.claims"}
+  - id: logged_customer_join
+    reason: forbidden_join
+    sql: >-
+      SELECT cu.city, COUNT(*) FROM silver.customer_interactions i
+      JOIN silver.customers cu ON i.logged_customer_id = cu.customer_id GROUP BY 1
+  - {id: logged_customer_select, reason: hidden_column, sql: "SELECT logged_customer_id FROM silver.customer_interactions"}
+  - id: customers_hospitals_on_city
+    reason: forbidden_join
+    sql: >-
+      SELECT h.hospital_name, COUNT(*) FROM silver.customers cu JOIN silver.hospitals h ON cu.city = h.city GROUP BY 1
+  - {id: cross_join, reason: forbidden_join, sql: "SELECT COUNT(*) FROM silver.claims CROSS JOIN gold.claim_doc_checklist"}
+  - {id: comma_join, reason: forbidden_join, sql: "SELECT COUNT(*) FROM silver.claims c, silver.policies p WHERE c.policy_id = p.policy_id"}
+  - id: join_through_subquery_on_city
+    reason: forbidden_join
+    sql: >-
+      SELECT COUNT(*) FROM silver.customers cu JOIN (SELECT city FROM silver.hospitals) h ON h.city = cu.city
+  - {id: fraud_score_as_customer, reason: hidden_column, persona: customer, sql: "SELECT AVG(fraud_risk_score) FROM silver.claims"}
+  - {id: rule_results_as_claims_agent, reason: persona, persona: claims_agent, sql: "SELECT COUNT(*) FROM gold.rule_results WHERE C1"}

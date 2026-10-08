@@ -10,7 +10,7 @@ each retrieval stage earns its place; a fast gate for every milestone and a full
 | Slice | Items | Gold built by | File |
 | --- | --- | --- | --- |
 | sql_facts | 40 | Generator (seed 42) samples IDs per template; gold computed by SQL at the as-of date | sql_facts.jsonl |
-| analytics | 20 | Hand-written question + verified SQL (not copies of the 14 verified queries) | analytics.jsonl |
+| analytics | 20 | Hand-written question + verified SQL (not copies of the verified queries). 15 under the 3-day scope (decided 2026-10-08): 12 general, 3 supervisor rule_results; tagged `draft` until signed off in analytics_checklist.md | analytics.jsonl |
 | policy_clauses | 50 | 10 products × sections 2, 4, 5, 9, 10, with paraphrases; gold answer + gold label; includes EVAL001–005 | policy_clauses.jsonl, seed_rag.jsonl |
 | comparisons | 10 | Gold from the reviewed coverage matrix | comparisons.jsonl |
 | claim_analysis | 25 | Curated claims with hand-checked rule labels; CA001–CA003 committed; CA004–CA010 drafted 2026-10-06 (10 under the 3-day scope), labels derived by `python -m insurai.eval.claim_labels` independently of the engine, tagged `draft` until signed off in claim_analysis_checklist.md | claim_analysis_seed.jsonl + claim_analysis.jsonl |

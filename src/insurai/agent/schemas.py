@@ -60,6 +60,9 @@ class Plan(BaseModel):
     clarification: str | None = None  # set → ask the user instead of running workers
 
 
+ALL_ROWS = "all_rows"  # analytics evidence payload key with every row: UI table and V3, never the prompt
+
+
 class Evidence(BaseModel):
     intent_id: str
     worker: str
@@ -96,6 +99,17 @@ class TraceEvent(BaseModel):
         return round(self.end_ms - self.start_ms, 1)
 
 
+class AnalyticsPayload(BaseModel):
+    """The analytics result of a turn, for the UI table and chart (spec 02, spec 10)."""
+
+    sql: str
+    columns: list[str]
+    rows: list[list[Any]]  # at most sql.row_limit
+    row_count: int
+    truncated: bool
+    chart: dict[str, Any] | None = None  # ChartSpec: {type: bar|line, x, y}
+
+
 class TurnResult(BaseModel):
     thread_id: str
     answer_markdown: str
@@ -104,3 +118,4 @@ class TurnResult(BaseModel):
     interrupt: dict[str, Any] | None = None  # assessment summary when the dossier waits for review
     assessment: dict[str, Any] | None = None
     verification_passed: bool | None = None
+    analytics: AnalyticsPayload | None = None

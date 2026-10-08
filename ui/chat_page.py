@@ -7,6 +7,7 @@ from typing import Any
 
 import state
 import streamlit as st
+from analytics_view import render_analytics
 from status import badge, status_line
 from trace_panel import render_trace
 from views import WAIT_CAPTION, progress_line
@@ -44,6 +45,8 @@ def _history() -> None:
             st.markdown(m["content"])
             if m.get("verified") and (mark := badge("verified", state.tone())):
                 st.caption(mark)
+            if m.get("analytics"):
+                render_analytics(m["analytics"], key=f"analytics-{i}")
             if m.get("progress"):
                 with st.expander(f"Steps · {m['elapsed_s']:.1f} s"):
                     st.markdown("  \n".join(m["progress"]))
@@ -110,6 +113,7 @@ def _apply(view: TurnView, elapsed_s: float) -> None:
                 "trace": view.trace,
                 "citations": view.citations,
                 "verified": view.verified,
+                "analytics": view.analytics,
                 "progress": [progress_line(e, d) for e, d in view.progress],
                 "elapsed_s": elapsed_s,
             }

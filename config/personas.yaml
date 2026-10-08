@@ -11,6 +11,7 @@ personas:
       customer_interactions: claim_id IN (SELECT claim_id FROM silver.claims WHERE customer_id = :principal_id)
     hidden_columns: [fraud_risk_score, manual_review_flag, risk_segment, customer_name]   # names only for agent and supervisor (spec 05)
     tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim]
+    analytics_hidden_tables: [rule_results]   # never reached: customers have no run_analytics
     analyze_claim_view: customer   # rule names and next steps only; no escalation internals
     can_resume_review: false
     can_read_eval_reports: false   # GET /eval/reports* (spec 09)
@@ -19,6 +20,7 @@ personas:
     row_scope: all
     hidden_columns: []
     mask_columns_in_analytics: [customer_name]
+    analytics_hidden_tables: [rule_results]   # rule outcomes are supervisor analytics, like portfolio_audit
     tools: [get_claim, get_claim_documents, get_policy, get_customer_summary, check_hospital, get_claim_interactions, search_policy, get_coverage, analyze_claim, run_analytics]
     analyze_claim_view: full
     can_resume_review: true

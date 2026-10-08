@@ -84,6 +84,7 @@ class SQLSettings(_Section):
     row_limit: int
     timeout_s: float
     repair_attempts: int
+    forbidden_functions: list[str] = Field(default_factory=list)  # fnmatch patterns (spec 02 validator)
 
 
 class AgentSettings(_Section):

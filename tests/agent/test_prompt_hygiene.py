@@ -47,7 +47,7 @@ def _contains(line: str, question: str) -> bool:
 
 
 def test_every_prompt_file_is_checked() -> None:
-    assert {p.stem for p in PROMPTS} >= {"planner", "synthesize", "templates"}
+    assert {p.stem for p in PROMPTS} >= {"planner", "synthesize", "templates", "text_to_sql"}
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=lambda p: p.stem)
@@ -65,6 +65,48 @@ def test_prompt_does_not_copy_golden_phrasing(path: Path) -> None:
         for item_id, question in _golden_questions()
         for line in candidates
         if (q := _norm(question)) and (_contains(line, q) or line in q or fuzz.ratio(q, line) >= NEAR)
+    ]
+    assert not leaks
+
+
+def _verified_questions() -> list[tuple[str, str]]:
+    """The semantic model's verified queries: rendered into text_to_sql as retrieved few-shots (spec 02)."""
+    from insurai.semantic.model import SemanticModel
+
+    return [(q.name, q.question) for q in SemanticModel.load().verified_queries]
+
+
+def _analytics_questions() -> list[tuple[str, str]]:
+    return [(item_id, q) for item_id, q in _golden_questions() if item_id.startswith("ANA")]
+
+
+def test_analytics_golden_set_is_checked() -> None:
+    assert len(_analytics_questions()) == 15
+
+
+def test_analytics_questions_share_no_ids_with_verified_queries() -> None:
+    verified_ids = {i for _, q in _verified_questions() for i in ID_RE.findall(q)}
+    verified_ids |= {i for q in _verified_sql() for i in ID_RE.findall(q)}
+    assert not [
+        (item_id, i) for item_id, q in _analytics_questions() for i in ID_RE.findall(q) if i in verified_ids
+    ]
+
+
+def _verified_sql() -> list[str]:
+    from insurai.semantic.model import SemanticModel
+
+    return [q.sql for q in SemanticModel.load().verified_queries]
+
+
+def test_analytics_questions_do_not_copy_verified_queries() -> None:
+    """The few-shot examples the generator sees must not be near-copies of what the eval asks."""
+    leaks = [
+        (item_id, name)
+        for item_id, question in _analytics_questions()
+        for name, verified in _verified_questions()
+        if (q := _norm(question))
+        and (v := _norm(verified))
+        and (_contains(v, q) or _contains(q, v) or fuzz.ratio(q, v) >= NEAR)
     ]
     assert not leaks
 

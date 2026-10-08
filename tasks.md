@@ -31,7 +31,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] sql_facts generator: 20 items, seed 42, gold recomputed per run (3-day scope; spec 11 says 40)
 - [x] FastMCP server (stdio + streamable HTTP), `make mcp-smoke`
 - [x] analyze_claim and portfolio_audit registered (2026-10-06, spec 07): AC-05-01 tests for both (portfolio_audit supervisor-only), `make mcp-smoke` passes with 10 tools
-- [ ] Issue: run_analytics deferred to M6 (spec 02); register it, then re-run AC-05-01 and `make mcp-smoke`
+- [x] run_analytics registered (2026-10-08, spec 02): AC-05-01 persona-gate tests; `make mcp-smoke` passes with 11 tools
 - [ ] Issue: grow sql_facts to 40 items (spec 11)
 - [x] policy_details intent added to spec 06 and planner.md v0.2.0 (decided 2026-10-04); SQL013–SQL016 route to it
 - Decision 2026-10-04: tools keep per-call read-only DuckDB connections (~15–80 ms) so `make data` can replace the warehouse on Windows without stopping services; revisit only if M7 latency needs it
@@ -81,8 +81,14 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
   - Measured 2026-10-07 (qwen3:8b): routing intent 0.9733 (73/75; misses EVAL021, EVAL034), entity 1.0; e2e_sql_facts gold_in_answer 1.0 (19/19 scored, SQL009 now passes)
 
 ## M6 Analytics — spec 02
-- [ ] Semantic model loader, validator, executor with timeout, repair loop, chart spec
-- [ ] analytics.jsonl (20)
+- [x] Semantic model loader, validator, executor with timeout, repair loop, chart spec (2026-10-08). AC-02-01…06, AC-02-08
+- [x] gold.rule_results in the semantic model, supervisor only (`analytics_hidden_tables`); 3 new verified queries (17 in total; approved_paid_in_full_despite_copay = 20,903); sql_examples re-indexed (AC-04-02 now 17)
+- [x] UI: final SSE event carries the analytics result; Chat page shows chart (Altair), table and SQL. Verification fallback renders the result table with its [sql:…] citation, never the abstain text
+- [x] analytics.jsonl: 15 items (decided 2026-10-08, 3-day scope; spec 11 says 20), tagged `draft`
+- [ ] Sign off eval/datasets/analytics_checklist.md (Ram), then remove the `draft` tags
+- [ ] Issue: grow analytics to 20 items (spec 11)
+- [ ] Open gate: AC-02-07 exec_accuracy 0.6667 on qwen3:8b (10/15; unsafe_blocked 1.0, repair_rate 0.20, p50 11.7 s, p95 26.1 s; text_to_sql.md v0.3.0). Misses: ANA003 extra hospital_id column and Health filter; ANA009 wrong grouping plus an unasked `required` filter; ANA012 aggregated per customer instead of listing claims; ANA013/ANA014 rebuilt C1/C3 from rule columns instead of the flags. Experiment: generator thinking on (env override, not committed) reached 0.80 but p50 72 s, p95 520 s, with truncated JSON at max_output_tokens 1200. Re-measure on api-lite when a key exists
+- Recorded 2026-10-08: routing before the ANA items joined 0.96 / entity 0.9867 (75 items; misses SQL004, EVAL021, EVAL034); after, 0.9667 / 0.9889 (90 items; ANA 15/15; misses EVAL021, EVAL034, MT006, the last two run-to-run variance seen before). Other eval-fast slices unchanged: policy_clauses recall@5 1.0, sql_facts 1.0, e2e gold_in_answer 1.0, claim_analysis all 1.0
 - **Gate:** AC-02-*; exec_accuracy ≥ 0.90
 
 ## M7 Guardrails + full eval — specs 08, 11

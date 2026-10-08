@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from insurai.agent.prompts import template
-from insurai.agent.schemas import Evidence, Intent, TraceEvent
+from insurai.agent.schemas import ALL_ROWS, Evidence, Intent, TraceEvent
 from insurai.agent.state import WorkerInput
 from insurai.agent.trace import event, now_ms
 from insurai.formatting import inr
@@ -17,6 +17,7 @@ from insurai.knowledge.coverage import ATTRIBUTE_SECTIONS
 from insurai.retrieval.glossary import expand
 from insurai.retrieval.schemas import RetrievalResult
 from insurai.settings import get_settings
+from insurai.tools.analytics import AnalyticsRejected, AnalyticsResult
 from insurai.tools.base import redact_args
 from insurai.tools.knowledge import CoverageCells
 from insurai.tools.messages import refusal
@@ -33,6 +34,8 @@ from insurai.tools.schemas import (
     PolicyView,
     ToolContext,
 )
+
+ANALYTICS_PROMPT_ROWS = 30  # rows of an analytics result the synthesizer sees (num_ctx 8192 on local)
 
 WORKER_FOR: dict[str, str] = {
     "claim_status": "claim_tools",
@@ -198,7 +201,7 @@ def _keep_policy_type(rec: Recorder, policy_type: str) -> None:
 def analytics_sql(payload: WorkerInput) -> dict[str, Any]:
     start = now_ms()
     rec = Recorder(payload, "analytics_sql")
-    rec.note("unavailable", template("analytics_unavailable"))  # run_analytics arrives with spec 02 (M6)
+    rec.call("run_analytics", question=rec.intent.sub_question)
     return rec.output(start)
 
 
@@ -223,6 +226,28 @@ def to_evidence(intent_id: str, worker: str, result: BaseModel) -> Evidence:
             payload={},
             sources=[],
             summary=refusal("ACCESS_DENIED"),
+        )
+    if isinstance(result, AnalyticsRejected):
+        # No result to cite: answered by the template, without an LLM call (NO_RESULT_KINDS).
+        return Evidence(
+            intent_id=intent_id,
+            worker=worker,
+            kind="unavailable",
+            payload=result.model_dump(mode="json", exclude={"sources"}),
+            sources=[],
+            summary=template("analytics_rejected", reason=result.reason.replace("_", " ")),
+        )
+    if isinstance(result, AnalyticsResult):
+        payload = result.model_dump(mode="json", exclude={"sources", "rows"})
+        payload["rows"] = result.rows[:ANALYTICS_PROMPT_ROWS]  # what the synthesizer sees
+        payload[ALL_ROWS] = result.rows  # the UI table and V3 number provenance; never in the prompt
+        return Evidence(
+            intent_id=intent_id,
+            worker=worker,
+            kind="AnalyticsResult",
+            payload=payload,
+            sources=result.sources,
+            summary=summarise(result),
         )
     if isinstance(result, RetrievalResult):
         payload = {
@@ -298,6 +323,11 @@ def summarise(result: BaseModel) -> str:
             return result.message
         case CoverageCells():
             return "; ".join(_cell_line(c.model_dump(mode="json")) for c in result.cells)
+        case AnalyticsResult():
+            more = " (truncated at the row limit)" if result.truncated else ""
+            return (
+                f"The query returned {result.row_count} rows{more} with columns {', '.join(result.columns)}."
+            )
     return type(result).__name__
 
 

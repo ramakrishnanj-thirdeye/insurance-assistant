@@ -17,7 +17,9 @@ def sql_source(table: str, key: str) -> SourceRef:
 def label_regexes() -> tuple[re.Pattern[str], re.Pattern[str]]:
     """(sql, policy) label patterns derived from the guardrails format strings."""
     g = guardrails()
-    sql = _to_regex(g["sql_citation_format"], {"table": r"[a-z_]+", "key": r"[A-Z]+\d+"})
+    sql = _to_regex(
+        g["sql_citation_format"], {"table": r"[a-z_]+", "key": r"[A-Z]+\d+|[0-9a-f]{8}"}
+    )  # a row | a query
     policy = _to_regex(
         g["citation_format"], {"product": r"[A-Za-z][\w ]*?", "section_no": r"\d+", "section_name": r".+?"}
     )

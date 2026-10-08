@@ -60,17 +60,29 @@ class AnalyticsResult(BaseModel):
 8. Sources: `SourceRef(kind="sql", label="[sql:<sha8 of sql>]", table=<first table>)`; the SQL itself goes to the trace and the UI.
 
 ## Acceptance criteria
-- [ ] AC-02-01 `SemanticModel.load` validates the YAML; a test introspects DuckDB and confirms every table and column expression exists (the committed model passes).
-- [ ] AC-02-02 All 14 committed verified queries pass `validate` and return ≥ 1 row.
-- [ ] AC-02-03 Validator rejects (≥ 15 negative tests): INSERT/UPDATE/DELETE/CREATE/DROP, two statements, `read_csv('...')`, `COPY ... TO`, `ATTACH`, `PRAGMA`, unknown table, unknown column, join `interactions.logged_customer_id = customers.customer_id`, join customers to hospitals on city, selecting `fraud_risk_score` as customer persona, `getvariable('as_of')`.
-- [ ] AC-02-04 LIMIT is injected when absent and capped at 200 when larger.
-- [ ] AC-02-05 Customer persona `run_analytics` → ACCESS_DENIED with no LLM call.
-- [ ] AC-02-06 A cross join of claims × claim_documents is interrupted at timeout_s and returns reason "timeout".
-- [ ] AC-02-07 Analytics slice (20 items): execution accuracy ≥ 90%; unsafe SQL blocked 100%.
-- [ ] AC-02-08 `customer_name` in a claims_agent analytics result is masked (e.g. "A. S.").
+- [x] AC-02-01 `SemanticModel.load` validates the YAML; a test introspects DuckDB and confirms every table and column expression exists (the committed model passes).
+- [x] AC-02-02 All 17 committed verified queries pass `validate` and return ≥ 1 row (14 until 2026-10-08, when three supervisor queries were added: approved claims outside their policy period, maternity paid where the wording excludes it, approved claims paid in full despite a co-pay = 20,903).
+- [x] AC-02-03 Validator rejects (≥ 15 negative tests): INSERT/UPDATE/DELETE/CREATE/DROP, two statements, `read_csv('...')`, `COPY ... TO`, `ATTACH`, `PRAGMA`, unknown table, unknown column, join `interactions.logged_customer_id = customers.customer_id`, join customers to hospitals on city, selecting `fraud_risk_score` as customer persona, `getvariable('as_of')`.
+- [x] AC-02-04 LIMIT is injected when absent and capped at 200 when larger.
+- [x] AC-02-05 Customer persona `run_analytics` → ACCESS_DENIED with no LLM call.
+- [x] AC-02-06 A cross join of claims × claim_documents is interrupted at timeout_s and returns reason "timeout".
+- [ ] AC-02-07 Analytics slice (20 items; 15 under the 3-day scope, decided 2026-10-08): execution accuracy ≥ 90%; unsafe SQL blocked 100%.
+- [x] AC-02-08 `customer_name` in a claims_agent analytics result is masked (e.g. "A. S.").
 
 ## Eval hooks
 Slice `analytics` (spec 11): execution accuracy, validator block rate, repair rate, latency.
 
 ## Open questions
-- Add `gold.rule_results` to the model for supervisor analytics ("how many approved claims fail R01")? Proposed: yes in M7 once spec 07 lands.
+- ~~Add `gold.rule_results` to the model for supervisor analytics?~~ Done 2026-10-08: table `rule_results` (supervisor only via
+  personas.yaml `analytics_hidden_tables`), joined to claims on claim_id; every rule and flag column described with synonyms.
+
+## Decisions (2026-10-08)
+- A second failure returns `AnalyticsRejected` (reason, detail, last SQL, attempts); the agent answers with the
+  `analytics_rejected` template, without an LLM call.
+- `validate` check order: parse, one statement, SELECT root, forbidden functions (settings `sql.forbidden_functions`),
+  tables, joins, columns, persona row scope; then LIMIT and masking. A join on a blocked column reports forbidden_join.
+- `ValidatedSql.limit_imposed` (additive) drives `truncated`; `generate_sql(..., error=None)` carries the repair error.
+- Chart: exactly one non-numeric column is x, the first numeric column is y; temporal → line, text with ≤ 30 rows → bar.
+- Execution runs with `enable_external_access = false` set on the read-only connection.
+- Citation label `[sql:<sha8>]`; the guardrails sql label regex accepts an 8-hex key.
+- If verification fails twice on an analytics turn, the answer is the result table with its citation (not the abstain text).

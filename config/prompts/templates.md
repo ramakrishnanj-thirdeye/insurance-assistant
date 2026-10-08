@@ -1,6 +1,6 @@
 ---
 id: templates
-version: 0.4.0
+version: 0.5.0
 ---
 ## claim_status
 Claim {claim_id} is **{claim_status}**{approved_clause}. It was filed on {claim_date} for {claim_amount} under {product_name}. {label}
@@ -66,8 +66,14 @@ Reviewer decision: **{action}**. Reviewer note: {note}
 ## planner_failure
 Sorry, I couldn't work out what you need. Could you rephrase it, naming the claim, policy, hospital or product?
 
-## analytics_unavailable
-Portfolio analytics (counts, rates and trends) are not available in this assistant yet.
+## analytics_rejected
+I couldn't answer that with a safe, validated query ({reason}). Try rephrasing it with the measure and the grouping you want.
+
+## analytics_table_heading
+The query returned {row_count} rows {label}:
+
+## analytics_more_rows
+{more} more rows are in the table below.
 
 ## intents_truncated
 You asked about {count} things; I answered the first {max}. Ask again for the rest.

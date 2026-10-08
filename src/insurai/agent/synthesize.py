@@ -15,7 +15,7 @@ from langchain_core.runnables import RunnableConfig
 from insurai.agent.answers import claim_status_text, template_draft
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
-from insurai.agent.schemas import AnswerDraft, Evidence, Plan
+from insurai.agent.schemas import ALL_ROWS, AnswerDraft, Evidence, Plan
 from insurai.agent.state import AgentState
 from insurai.agent.trace import llm_events, now_ms
 from insurai.guardrails.verify import NO_RESULT_KINDS, labels_in
@@ -76,7 +76,8 @@ def evidence_blocks(evidence: list[Evidence]) -> str:
     blocks = []
     for ev in evidence:
         labels = " ".join(s.label for s in ev.sources)
-        body = html.escape(json.dumps(ev.payload, ensure_ascii=False, default=str), quote=False)
+        payload = {k: v for k, v in ev.payload.items() if k != ALL_ROWS}
+        body = html.escape(json.dumps(payload, ensure_ascii=False, default=str), quote=False)
         blocks.append(
             f'<evidence source="{html.escape(labels)}" kind="{ev.kind}">\n'
             f"summary: {html.escape(ev.summary, quote=False)}\n{body}\n</evidence>"
@@ -138,6 +139,31 @@ def abstain_draft(evidence: list[Evidence]) -> AnswerDraft:
             cited.append(label)
         lines.append(f"- {ev.summary} {label}".rstrip())
     return AnswerDraft(answer_markdown="\n".join(lines), citations=list(dict.fromkeys(cited)))
+
+
+def analytics_draft(evidence: list[Evidence], max_rows: int = 30) -> AnswerDraft:
+    """An analytics answer without an LLM: each result as a markdown table with its [sql:…] citation, and the
+    other evidence as cited summary lines. Used when the synthesized answer failed verification twice."""
+    lines: list[str] = []
+    for ev in evidence:
+        label = ev.sources[0].label if ev.sources else ""
+        if ev.kind != "AnalyticsResult":
+            lines.append(f"- {ev.summary} {label}".rstrip())
+            continue
+        columns, rows = ev.payload["columns"], ev.payload.get(ALL_ROWS, ev.payload["rows"])
+        lines += [template("analytics_table_heading", row_count=ev.payload["row_count"], label=label), ""]
+        lines.append("| " + " | ".join(_cell(c) for c in columns) + " |")
+        lines.append("|" + "---|" * len(columns))
+        lines += ["| " + " | ".join(_cell(v) for v in row) + " |" for row in rows[:max_rows]]
+        if len(rows) > max_rows:
+            lines += ["", template("analytics_more_rows", more=len(rows) - max_rows)]
+        lines.append("")
+    text = "\n".join(lines).strip()
+    return AnswerDraft(answer_markdown=text, citations=list(dict.fromkeys(labels_in(text))))
+
+
+def _cell(value: Any) -> str:
+    return "" if value is None else str(value).replace("|", r"\|")
 
 
 def last_question(state: AgentState) -> str:

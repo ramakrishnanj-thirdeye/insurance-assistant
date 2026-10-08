@@ -27,6 +27,14 @@ TRACE = [
     {"kind": "intent", "name": "claim_status", "turn": 1, "start_ms": 0, "end_ms": 0, "data": {}},
     {"kind": "tool", "name": "get_claim", "turn": 1, "start_ms": 0, "end_ms": 35, "data": {"ok": True}},
 ]
+ANALYTICS = {
+    "sql": "SELECT policy_type, COUNT(*) AS claims FROM silver.claims GROUP BY 1 LIMIT 200",
+    "columns": ["policy_type", "claims"],
+    "rows": [["Health", 81403], ["Motor", 28951], ["Travel", 9646]],
+    "row_count": 3,
+    "truncated": False,
+    "chart": {"type": "bar", "x": "policy_type", "y": "claims"},
+}
 PROGRESS: list[Event] = [
     ("node", {"name": "planner", "status": "start"}),
     ("node", {"name": "planner", "status": "end", "ms": 412.0, "interrupted": False}),
@@ -87,6 +95,12 @@ class FakeApi:
         yield from PROGRESS
         if message.startswith("Analyze"):
             yield "interrupt", {"assessment_summary": REVIEW}
+        elif message.startswith("Claims per"):
+            answer = "Health has the most claims. [sql:1a2b3c4d]"
+            yield (
+                "final",
+                {"answer_markdown": answer, "citations": [], "trace": TRACE, "analytics": ANALYTICS},
+            )
         else:
             yield "final", {"answer_markdown": f"Answer to: {message}", "citations": [], "trace": TRACE}
         yield "done", {}
@@ -274,3 +288,25 @@ def test_AC_10_09_tone_picker_hidden_for_customer() -> None:
     assert [r.label for r in at.sidebar.radio] == ["Status tone"]
     at.sidebar.selectbox(key="persona").set_value("customer").run()
     assert not at.sidebar.radio
+
+
+def test_analytics_answer_shows_chart_table_and_sql() -> None:
+    at = _app(FakeApi())
+    at.chat_input[0].set_value("Claims per line of business").run()
+    assert "Health has the most claims." in _texts(at)
+    (frame,) = _result_tables(at)  # the Trace panel has its own dataframes
+    assert len(frame.value) == 3
+    assert [c.value for c in at.code] == [ANALYTICS["sql"]]
+    assert "SQL" in [e.label for e in at.expander]
+    assert len(at.get("vega_lite_chart")) == 1
+    assert any(c.value == "3 rows" for c in at.caption)
+
+
+def test_plain_answer_has_no_analytics_block() -> None:
+    at = _app(FakeApi())
+    at.chat_input[0].set_value("What is the maternity waiting period under Health Secure Plus?").run()
+    assert not _result_tables(at) and not at.code and not at.get("vega_lite_chart")
+
+
+def _result_tables(at: AppTest) -> list[Any]:
+    return [d for d in at.dataframe if list(d.value.columns) == ANALYTICS["columns"]]

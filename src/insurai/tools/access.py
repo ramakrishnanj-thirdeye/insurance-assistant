@@ -26,6 +26,8 @@ class PersonaConfig(BaseModel):
     can_resume_review: bool = False
     can_read_eval_reports: bool = False
     analyze_claim_view: Literal["full", "customer"] = "full"  # spec 07 Behaviour 8
+    mask_columns_in_analytics: list[str] = []  # shown as initials in run_analytics results (spec 02)
+    analytics_hidden_tables: list[str] = []  # semantic-model tables run_analytics may not query (spec 02)
 
 
 @lru_cache(maxsize=1)

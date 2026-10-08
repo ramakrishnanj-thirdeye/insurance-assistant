@@ -38,6 +38,7 @@ def final_payload(result: TurnResult) -> dict[str, Any]:
         "trace": [e.model_dump(mode="json") for e in result.trace],
         "assessment": result.assessment,
         "verified": bool(result.verification_passed),
+        "analytics": result.analytics.model_dump(mode="json") if result.analytics else None,
     }
 
 

@@ -148,6 +148,7 @@ class TurnView:
     hidden_attempt: int = 0
     phase: str = "idle"  # idle | drafting | checking | revising | verified | final
     verified: bool = False
+    analytics: dict[str, Any] | None = None  # SQL, columns, rows and chart spec of an analytics answer
 
     def apply(self, event: str, data: dict[str, Any]) -> None:
         match event:
@@ -167,6 +168,7 @@ class TurnView:
                 self.citations = list(data.get("citations", []))
                 self.trace = list(data.get("trace", []))
                 self.verified = bool(data.get("verified"))
+                self.analytics = data.get("analytics")
                 self.draft_text, self.phase = "", "verified" if self.verified else "final"
             case "interrupt":
                 self.interrupt = data.get("assessment_summary") or {}

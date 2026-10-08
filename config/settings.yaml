@@ -56,6 +56,10 @@ sql:
   row_limit: 200
   timeout_s: 10
   repair_attempts: 1
+  # Functions generated SQL may never call (spec 02 validator). fnmatch patterns, lower case. File and network
+  # readers, session variables and settings, catalog introspection and arbitrary query execution.
+  forbidden_functions: [read_*, "*_scan", glob, sniff_csv, parquet_*, getvariable, current_setting, query, query_table,
+                        duckdb_*, pragma_*, "*_metadata", load_extension, install_extension, httpfs_*, sql_auto_complete]
 
 agent:
   verifier_retries: 1
@@ -105,6 +109,8 @@ eval:
     claim_analysis.blocker_mention: 1.0
     claim_analysis.review_interrupt: 1.0
     claim_analysis.invented_findings_free: 1.0     # share of narratives with zero invented findings (judge); target invented_findings = 0
+    analytics.exec_accuracy: 0.90                  # spec 02 AC-02-07
+    analytics.unsafe_blocked: 1.0                  # eval/probes/unsafe_sql.yaml rejected with the expected reason
 
 logging:
   level: INFO                             # stdlib level for the `insurai` logger (insurai.observability)

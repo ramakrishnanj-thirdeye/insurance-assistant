@@ -310,8 +310,11 @@ def test_M3_hospital_name_lookup(warehouse: duckdb.DuckDBPyConnection) -> None:
     assert isinstance(result, HospitalCheck) and result.hospital_id == KNOWN_HOSPITAL
 
 
-def test_registry_has_the_ten_spec05_tools_built_so_far() -> None:
-    assert set(TOOLS) == set(CASES) | SUPERVISOR_ONLY  # run_analytics joins in M6 (spec 02)
+def test_registry_has_all_eleven_spec05_tools() -> None:
+    assert set(TOOLS) == set(CASES) | SUPERVISOR_ONLY | {
+        "run_analytics"
+    }  # run_analytics: tests/tools/test_analytics.py
+    assert len(TOOLS) == 11
 
 
 def _rule_results_ready(warehouse: duckdb.DuckDBPyConnection) -> None:

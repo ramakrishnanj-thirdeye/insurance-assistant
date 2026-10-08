@@ -21,7 +21,7 @@ from insurai.agent.resolve import fast_path_plan, is_fast_path, resolve_entities
 from insurai.agent.respond import guard_event, respond
 from insurai.agent.schemas import NO_WORKER, AnswerDraft, Entities, Evidence, Plan, Reset
 from insurai.agent.state import AgentState, worker_payload
-from insurai.agent.synthesize import abstain_draft, last_question, synthesize
+from insurai.agent.synthesize import abstain_draft, analytics_draft, last_question, synthesize
 from insurai.agent.trace import event, instant, llm_events, now_ms
 from insurai.agent.workers import WORKER_FOR, analytics_sql, claim_tools, policy_rag
 from insurai.guardrails.input import check_input
@@ -242,7 +242,10 @@ def verify_node(state: AgentState) -> dict[str, Any]:
 def fallback_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDraft:
     """After the last failed attempt: for a claim-analysis turn, the assessment rendered without an LLM
     (findings, next steps, citations; respond appends the reviewer decision), never the policy-wording
-    abstention; otherwise the abstain draft."""
+    abstention; for a turn with an analytics result, the result table with its citation; otherwise the
+    abstain draft."""
+    if any(ev.kind == "AnalyticsResult" for ev in evidence):
+        return analytics_draft(evidence)
     assessment = state.get("assessment")
     plan = state.get("plan")
     intent = next((i for i in plan.intents if i.type == "claim_analysis"), None) if plan else None

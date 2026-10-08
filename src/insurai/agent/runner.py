@@ -17,7 +17,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
 
 from insurai.agent.progress import DraftGate, plan_summary
-from insurai.agent.schemas import Plan, TraceEvent, TurnResult
+from insurai.agent.schemas import ALL_ROWS, AnalyticsPayload, Evidence, Plan, TraceEvent, TurnResult
 from insurai.agent.synthesize import narrative_is_answer
 from insurai.guardrails.verify import labels_in
 from insurai.rules.schemas import ReviewDecision
@@ -230,6 +230,22 @@ async def aresult(graph: CompiledStateGraph, thread_id: str) -> TurnResult:
     return _from_snapshot(await graph.aget_state(_config(thread_id, None)), thread_id)
 
 
+def analytics_payload(evidence: list[Evidence]) -> AnalyticsPayload | None:
+    """The turn's first analytics result with every row (the prompt only saw the first rows)."""
+    ev = next((e for e in evidence if e.kind == "AnalyticsResult"), None)
+    if ev is None:
+        return None
+    p = ev.payload
+    return AnalyticsPayload(
+        sql=p["sql"],
+        columns=p["columns"],
+        rows=p.get(ALL_ROWS, p["rows"]),
+        row_count=p["row_count"],
+        truncated=p["truncated"],
+        chart=p.get("chart"),
+    )
+
+
 def _from_snapshot(snapshot: StateSnapshot, thread_id: str) -> TurnResult:
     values = snapshot.values
     assessment = values.get("assessment")
@@ -239,6 +255,7 @@ def _from_snapshot(snapshot: StateSnapshot, thread_id: str) -> TurnResult:
         "trace": values.get("trace", []),
         "assessment": assessment.model_dump(mode="json") if assessment is not None else None,
         "verification_passed": verification.passed if verification is not None else None,
+        "analytics": analytics_payload(values.get("evidence", [])),
     }
     if snapshot.interrupts:
         return TurnResult(

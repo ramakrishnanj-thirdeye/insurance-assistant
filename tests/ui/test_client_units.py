@@ -97,6 +97,15 @@ def test_stream_events_fold_into_turn_view() -> None:
     assert view.answer == "Approved [CLM300210]" and view.citations == ["CLM300210"] and view.trace == [{}]
 
 
+def test_final_event_carries_the_analytics_block() -> None:
+    view = TurnView()
+    view.apply("final", {"answer_markdown": "a", "analytics": {"sql": "SELECT 1", "rows": [[1]]}})
+    assert view.analytics == {"sql": "SELECT 1", "rows": [[1]]}
+    plain = TurnView()
+    plain.apply("final", {"answer_markdown": "a"})
+    assert plain.analytics is None
+
+
 def test_turn_view_interrupt_and_error() -> None:
     view = TurnView()
     view.apply("interrupt", {"assessment_summary": {"claim_id": "CLM1"}})
