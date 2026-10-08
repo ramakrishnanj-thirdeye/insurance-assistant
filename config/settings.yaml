@@ -23,6 +23,8 @@ llm:
       generator: {provider: ollama, model: "qwen3:8b", temperature: 0, num_ctx: 8192, reasoning: false, request_timeout_s: 180, seed: 42}
       small:     {provider: ollama, model: "qwen3:8b", temperature: 0, num_ctx: 8192, reasoning: false, request_timeout_s: 180, seed: 42}
       judge:     {provider: ollama, model: "llama3.1:8b", temperature: 0, num_ctx: 8192, request_timeout_s: 180, seed: 42}  # another model family (ADR-006); no thinking switch
+      # sql: optional, text-to-SQL only; unset = the generator. qwen2.5-coder:7b tied qwen3:8b (0.80) but adds a model swap per turn (ADR-006 2026-10-08)
+      # sql:     {provider: ollama, model: "qwen2.5-coder:7b", temperature: 0, num_ctx: 8192, request_timeout_s: 180, seed: 42}
     api-lite:
       generator: {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}
       small:     {provider: anthropic, model: claude-haiku-4-5-20251001, temperature: 0}

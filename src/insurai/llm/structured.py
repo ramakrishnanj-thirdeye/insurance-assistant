@@ -13,9 +13,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
-from insurai.llm import Role, get_model
+from insurai.llm import Role, get_model, role_spec
 from insurai.observability import get_logger
-from insurai.settings import get_settings
 
 log = get_logger(__name__)
 
@@ -126,8 +125,7 @@ def text_call(
 
 
 def ctx_warning(role: Role, input_tokens: int | None) -> dict[str, Any] | None:
-    settings = get_settings()
-    spec = settings.llm.profiles[settings.llm.profile][role]
+    spec = role_spec(role)
     if spec.provider != "ollama" or spec.num_ctx is None or input_tokens is None:
         return None
     if input_tokens < CTX_WARN_RATIO * spec.num_ctx:

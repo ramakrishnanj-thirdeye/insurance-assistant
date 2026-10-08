@@ -60,7 +60,7 @@ def generate_sql(
         error=error or "(none)",
         question=question,
     )
-    draft, _ = structured_call("generator", SqlDraft, [HumanMessage(content=text)], prompt.id, prompt.version)
+    draft, _ = structured_call("sql", SqlDraft, [HumanMessage(content=text)], prompt.id, prompt.version)
     return draft
 
 

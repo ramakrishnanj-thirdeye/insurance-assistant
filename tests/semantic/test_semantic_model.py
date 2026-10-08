@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from insurai.semantic.model import SEMANTIC_MODEL_FILE, SemanticModel
 from insurai.settings import get_settings
 
-VERIFIED = 17  # 14 from spec 04 + 3 supervisor/co-pay queries added with spec 02 (2026-10-08)
+VERIFIED = 30  # 14 from spec 04, +3 supervisor/co-pay and +13 general (spec 02, 2026-10-08)
 
 
 @pytest.mark.unit

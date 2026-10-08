@@ -11,3 +11,11 @@ different model family than the generator, which judges more independently than 
 and it runs at about the generator's speed (~4.9 GB). It will be calibrated against hand scores in M7
 (judge_calibration.jsonl, spec 11). Eval runners make every judge call in a second phase after all answers are
 generated, so Ollama does not swap models on every item.
+
+**Amendment 2026-10-08 (sql role).** An optional fourth role, `sql`, is used only by `semantic.sql.generate_sql`
+(text-to-SQL, spec 02). A profile that does not configure it falls back to its `generator` (`ROLE_FALLBACK` in
+settings), so api-lite and api-quality are unchanged. Measured on the 15-item analytics slice with 30 verified
+queries as few-shots (analytics slice run in its own phase): qwen3:8b exec_accuracy 0.80, repair_rate 0.067,
+p50 9.9 s, p95 26.4 s; qwen2.5-coder:7b exec_accuracy 0.80, repair_rate 0.0, p50 6.7 s, p95 43.9 s (8.8 s once
+loaded). Equal accuracy, so the local profile keeps qwen3:8b: a second local model would make Ollama swap models
+inside every analytics turn (planner → sql → synthesize). The coder stays a commented option in settings.yaml.

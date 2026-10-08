@@ -31,7 +31,7 @@ Specs in `specs/` are the contract; decisions in `decisions/`; progress in `task
 5. **Time is `settings.as_of_date` (2026-10-01).** Never call `date.today()` or `datetime.now()` in business logic.
 6. **Config over code.** Thresholds, rules, required documents, coverage, glossary, prompts and refusal texts live in `config/`.
 7. **Never modify `data/raw/`, never repair anomalies.** Flag them (ADR-007).
-8. **All LLM calls go through `insurai.llm.get_model(role)`** with role generator, small or judge. No direct provider clients.
+8. **All LLM calls go through `insurai.llm.get_model(role)`** with role generator, small, judge or sql (text-to-SQL only; falls back to generator, ADR-006). No direct provider clients.
 9. **No secrets in code or config.** Keys come from `.env` (see `.env.example`).
 10. **Tests ship with every change.** Name tests after acceptance criteria: `test_AC_04_05_drunk_driving_hits_mpc_exclusions`.
 

@@ -66,7 +66,7 @@ class AnalyticsResult(BaseModel):
 - [x] AC-02-04 LIMIT is injected when absent and capped at 200 when larger.
 - [x] AC-02-05 Customer persona `run_analytics` → ACCESS_DENIED with no LLM call.
 - [x] AC-02-06 A cross join of claims × claim_documents is interrupted at timeout_s and returns reason "timeout".
-- [ ] AC-02-07 Analytics slice (20 items; 15 under the 3-day scope, decided 2026-10-08): execution accuracy ≥ 90%; unsafe SQL blocked 100%.
+- [ ] AC-02-07 (open gate: 0.80 on qwen3:8b with 30 verified queries, 2026-10-08; 0.6667 with 17) Analytics slice (20 items; 15 under the 3-day scope, decided 2026-10-08): execution accuracy ≥ 90%; unsafe SQL blocked 100%.
 - [x] AC-02-08 `customer_name` in a claims_agent analytics result is masked (e.g. "A. S.").
 
 ## Eval hooks
@@ -81,6 +81,7 @@ Slice `analytics` (spec 11): execution accuracy, validator block rate, repair ra
   `analytics_rejected` template, without an LLM call.
 - `validate` check order: parse, one statement, SELECT root, forbidden functions (settings `sql.forbidden_functions`),
   tables, joins, columns, persona row scope; then LIMIT and masking. A join on a blocked column reports forbidden_join.
+- `generate_sql` uses the optional `sql` LLM role (falls back to generator; ADR-006 amendment 2026-10-08). verified_queries: 30.
 - `ValidatedSql.limit_imposed` (additive) drives `truncated`; `generate_sql(..., error=None)` carries the repair error.
 - Chart: exactly one non-numeric column is x, the first numeric column is y; temporal → line, text with ≤ 30 rows → bar.
 - Execution runs with `enable_external_access = false` set on the read-only connection.

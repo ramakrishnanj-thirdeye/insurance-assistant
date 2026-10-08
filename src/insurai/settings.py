@@ -20,7 +20,9 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG_FILE: Path = ROOT / "config" / "settings.yaml"
 ENV_FILE: Path | None = ROOT / ".env"
 
-Role = Literal["generator", "small", "judge"]
+Role = Literal["generator", "small", "judge", "sql"]
+# Optional roles and the role they fall back to when a profile does not configure them.
+ROLE_FALLBACK: dict[str, str] = {"sql": "generator"}  # sql: text-to-SQL only (spec 02, ADR-006)
 Provider = Literal["anthropic", "ollama"]
 
 

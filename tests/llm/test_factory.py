@@ -2,7 +2,7 @@ import pytest
 from langchain_anthropic import ChatAnthropic
 from langchain_ollama import ChatOllama
 
-from insurai.llm import get_model
+from insurai.llm import get_model, role_spec
 from insurai.settings import get_settings
 
 pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("no_network")]
@@ -90,3 +90,33 @@ def test_api_profile_keeps_global_timeout(monkeypatch: pytest.MonkeyPatch) -> No
     model = get_model("generator")
     assert isinstance(model, ChatAnthropic)
     assert model.default_request_timeout == get_settings().llm.request_timeout_s
+
+
+@pytest.mark.parametrize("profile", ["api-lite", "api-quality"])
+def test_sql_role_falls_back_to_the_generator(monkeypatch: pytest.MonkeyPatch, profile: str) -> None:
+    """ADR-006 amendment 2026-10-08: `sql` is optional; a profile without it uses its generator."""
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", profile)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    settings = get_settings()
+    assert "sql" not in settings.llm.profiles[profile]
+    assert role_spec("sql") == settings.llm.profiles[profile]["generator"]
+    assert get_model("sql").model == get_model("generator").model  # type: ignore[attr-defined]
+
+
+def test_configured_sql_role_is_used(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", "local")
+    monkeypatch.setenv("INSURAI__LLM__PROFILES__LOCAL__SQL__PROVIDER", "ollama")
+    monkeypatch.setenv("INSURAI__LLM__PROFILES__LOCAL__SQL__MODEL", "sql-model:1b")
+    assert get_model("sql").model == "sql-model:1b"  # type: ignore[attr-defined]
+    assert get_model("generator").model != "sql-model:1b"  # type: ignore[attr-defined]
+
+
+def test_local_judge_differs_from_the_sql_model_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", "local")
+    family = {r: get_model(r).model.split(":")[0].rstrip("0123456789.") for r in ("sql", "judge")}  # type: ignore[arg-type,attr-defined]
+    assert family["judge"] != family["sql"]
+
+
+def test_unknown_role_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown LLM role"):
+        get_model("planner")  # type: ignore[arg-type]

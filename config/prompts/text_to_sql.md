@@ -1,7 +1,7 @@
 ---
 id: text_to_sql
 version: 0.3.0
-role: generator
+role: sql
 output: {"sql": str, "rationale": str}
 ---
 Write one DuckDB SELECT statement that answers the question using ONLY the semantic model below.

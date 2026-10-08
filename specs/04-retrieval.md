@@ -63,7 +63,7 @@ def similar_sql_examples(question: str, k: int = 3) -> list[VerifiedQuery]: ...
 
 ## Acceptance criteria
 - [x] AC-04-01 Spike outcome recorded in ADR-002 (supported features, chosen fallbacks if any).
-- [x] AC-04-02 `make index` builds both collections from scratch in < 2 min on CPU and is idempotent; policy_chunks has 62 points, sql_examples has 17 (14 until spec 02 added three verified queries, 2026-10-08).
+- [x] AC-04-02 `make index` builds both collections from scratch in < 2 min on CPU and is idempotent; policy_chunks has 62 points, sql_examples has 30 (14 until spec 02 grew the verified queries, 2026-10-08).
 - [x] AC-04-03 Every point has dense and sparse vectors and the full payload.
 - [x] AC-04-04 EVAL001 (product Health Secure Plus): `[Health Secure Plus §5 Maternity]` in the top 3.
 - [x] AC-04-05 EVAL004 (product Motor Protect Comprehensive): top 1 is `[Motor Protect Comprehensive §9 Exclusions]` and no Two Wheeler Secure chunk appears.

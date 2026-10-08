@@ -15,14 +15,14 @@ pytestmark = pytest.mark.integration
 BuiltIndex = tuple[Path, IndexReport, IndexReport]
 
 
-def test_AC_04_02_index_counts_62_and_17(built_index: BuiltIndex) -> None:
+def test_AC_04_02_index_counts_62_and_30(built_index: BuiltIndex) -> None:
     path, policies, examples = built_index
-    assert (policies.points, examples.points) == (62, 17)
+    assert (policies.points, examples.points) == (62, 30)
     client = get_qdrant(path=path)
     try:
         s = get_settings().retrieval
         assert client.count(s.collection_policies, exact=True).count == 62
-        assert client.count(s.collection_sql_examples, exact=True).count == 17
+        assert client.count(s.collection_sql_examples, exact=True).count == 30
     finally:
         client.close()
 

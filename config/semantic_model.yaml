@@ -309,3 +309,66 @@ verified_queries:               # tested against the warehouse; also seeds the s
       SELECT COUNT(*) AS claims_paid_in_full FROM silver.claims c
       JOIN silver.policies p ON p.policy_id = c.policy_id
       WHERE c.claim_status = 'Approved' AND p.co_pay_pct > 0 AND c.approved_amount = c.claim_amount
+  - name: claims_by_customer_city
+    question: Which customer cities file the most claims?
+    sql: >-
+      SELECT cu.city, COUNT(*) AS claims FROM silver.claims c
+      JOIN silver.customers cu ON cu.customer_id = c.customer_id GROUP BY cu.city ORDER BY claims DESC
+  - name: avg_sum_insured_by_product
+    question: What is the average sum insured for each product?
+    sql: >-
+      SELECT product_name, ROUND(AVG(sum_insured)) AS avg_sum_insured FROM silver.policies
+      GROUP BY 1 ORDER BY avg_sum_insured DESC
+  - name: customers_by_kyc_status
+    question: How are customers split by KYC status?
+    sql: SELECT kyc_status, COUNT(*) AS customers FROM silver.customers GROUP BY 1 ORDER BY customers DESC
+  - name: high_value_claims_by_product
+    question: How many high-value claims does each product have?
+    sql: >-
+      SELECT product_name, COUNT(*) AS high_value_claims FROM silver.claims WHERE high_value
+      GROUP BY 1 ORDER BY high_value_claims DESC
+  - name: in_period_share_by_line
+    question: What share of claims fall inside the policy period, by line of business?
+    sql: >-
+      SELECT policy_type, ROUND(100.0 * COUNT(*) FILTER (WHERE in_policy_period) / COUNT(*), 1) AS in_period_pct
+      FROM silver.claims GROUP BY 1 ORDER BY 1
+  - name: top_travel_loss_types
+    question: List the five most frequent loss types for travel claims.
+    sql: >-
+      SELECT diagnosis_or_loss_type, COUNT(*) AS claims FROM silver.claims WHERE policy_type = 'Travel'
+      GROUP BY 1 ORDER BY claims DESC LIMIT 5
+  - name: interactions_by_channel_2025
+    question: How many interactions came in through each channel during 2025?
+    sql: >-
+      SELECT channel, COUNT(*) AS interactions FROM silver.customer_interactions
+      WHERE interaction_date >= DATE '2025-01-01' AND interaction_date < DATE '2026-01-01'
+      GROUP BY 1 ORDER BY interactions DESC
+  - name: network_hospitals_by_specialty
+    question: How many network hospitals are there for each specialty?
+    sql: >-
+      SELECT specialty, COUNT(*) AS network_hospitals FROM silver.hospitals WHERE network_status = 'Network'
+      GROUP BY 1 ORDER BY network_hospitals DESC
+  - name: latest_rejected_claims
+    question: Show the ten most recently filed rejected claims with their product and claimed amount.
+    sql: >-
+      SELECT claim_id, product_name, claim_amount, claim_date FROM silver.claims WHERE claim_status = 'Rejected'
+      ORDER BY claim_date DESC, claim_id LIMIT 10
+  - name: pending_documents_nothing_outstanding_by_line
+    question: Per line of business, how many claims wait in Pending Documents although nothing is missing or unverified?
+    sql: >-
+      SELECT c.policy_type, COUNT(*) AS claims FROM gold.rule_results r
+      JOIN silver.claims c ON c.claim_id = r.claim_id WHERE r.C2 GROUP BY 1 ORDER BY claims DESC
+  - name: waiting_period_rejections_contradicted_by_product
+    question: Which products rejected claims for the waiting period even though it had been served?
+    sql: >-
+      SELECT product_name, COUNT(*) AS claims FROM gold.rule_results WHERE C4 GROUP BY 1 ORDER BY claims DESC
+  - name: approved_amount_despite_blockers_by_line
+    question: What amount was approved on claims that went through despite failed blocker rules, per line of business?
+    sql: >-
+      SELECT c.policy_type, SUM(c.approved_amount) AS approved_amount FROM gold.rule_results r
+      JOIN silver.claims c ON c.claim_id = r.claim_id WHERE r.C1 GROUP BY 1 ORDER BY approved_amount DESC
+  - name: coverage_check_failures_by_loss_type
+    question: Which loss types most often fail the coverage check?
+    sql: >-
+      SELECT c.diagnosis_or_loss_type, COUNT(*) AS claims FROM gold.rule_results r
+      JOIN silver.claims c ON c.claim_id = r.claim_id WHERE r.R05 = 'fail' GROUP BY 1 ORDER BY claims DESC
