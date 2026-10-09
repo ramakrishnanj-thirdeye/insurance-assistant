@@ -1,6 +1,6 @@
 ---
 id: templates
-version: 0.5.0
+version: 0.6.0
 ---
 ## claim_status
 Claim {claim_id} is **{claim_status}**{approved_clause}. It was filed on {claim_date} for {claim_amount} under {product_name}. {label}
@@ -89,3 +89,12 @@ Which policy do you mean? Give the policy ID (like POL100001).
 
 ## customer_message
 Here is an update on your claim {claim_id}, which is {claim_status}. Next steps: {steps}. Final decision depends on complete claim assessment.
+
+## guarantee_lead
+I can't promise an outcome. Final decision depends on complete claim assessment. {label}
+
+## guarantee_needs_heading
+What claim {claim_id} still needs:
+
+## conflict_line
+{concept_name}: {schedule_value} {unit} in your policy schedule {schedule_label}; {wording_value} {unit} in the product wording {wording_label}.

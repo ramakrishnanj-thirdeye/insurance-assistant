@@ -32,7 +32,7 @@ class AccessDenied(BaseModel): kind: Literal["access_denied"] = "access_denied";
 | get_customer_summary | (ctx, customer_id=None, name=None, city=None) | CustomerSummary or Disambiguation (≤ 10 matches: id, city, age, policies) | gold.v_customer_360 |
 | check_hospital | (ctx, hospital_id=None, name=None, city=None) | HospitalCheck: network_status, specialty, city, ≤ 3 network alternatives (same city and specialty) | silver.hospitals |
 | get_claim_interactions | (ctx, claim_id) | InteractionHistory: rows, counts by intent, latest sentiment, open escalations, before_claim_date flags | silver.customer_interactions |
-| search_policy | (ctx, query, product?, policy_type?, section_hints?) | RetrievalResult | spec 04 |
+| search_policy | (ctx, query, product?, policy_type?, section_hints?, pinned_sections?) | RetrievalResult | spec 04 |
 | get_coverage | (ctx, product?, attribute?) | CoverageCells | spec 03 |
 | analyze_claim | (ctx, claim_id, narrate=False) | ClaimAssessment | spec 07 |
 | run_analytics | (ctx, question) | AnalyticsResult | spec 02 |

@@ -171,11 +171,13 @@ def test_AC_06_03_two_intents_overlapping_worker_spans(graph: Any, monkeypatch: 
     retrieval = next(e for e in result.trace if e.kind == "retrieval")
     assert {"label", "fused_rank", "rerank_score", "via"} <= set(retrieval.data["chunks"][0])
     llm = [e for e in result.trace if e.kind == "llm"]
-    assert {e.name for e in llm} == {"planner", "synthesize"}
+    # settings.yaml profile api-lite: guardrails.v7_live is on, so the V7 judge runs on the policy answer
+    assert {e.name for e in llm} == {"planner", "synthesize", "verify_groundedness"}
     for e in llm:
         assert e.data["input_tokens"] and e.data["output_tokens"] and e.data["model"] and e.data["role"]
     assert {(e.data["prompt_id"], e.data["version"]) for e in result.trace if e.kind == "prompt"} == {
-        (p.id, p.version) for p in (load_prompt("planner"), load_prompt("synthesize"))
+        (p.id, p.version)
+        for p in (load_prompt("planner"), load_prompt("synthesize"), load_prompt("verify_groundedness"))
     }
     assert next(e for e in result.trace if e.kind == "total").duration_ms > 0
 

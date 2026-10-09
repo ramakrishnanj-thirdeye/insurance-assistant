@@ -40,7 +40,10 @@ class RetrievalResult(BaseModel):
     query: str; rewritten_query: str; filters: dict; section_hints: list[int]
     chunks: list[RetrievedChunk]; confident: bool; timings_ms: dict[str, float]; sources: list[SourceRef]
 def search_policy(ctx: ToolContext, query: str, product: str | None = None, policy_type: str | None = None,
-                  section_hints: list[int] | None = None, cfg: RetrievalConfig | None = None) -> RetrievalResult: ...
+                  section_hints: list[int] | None = None, cfg: RetrievalConfig | None = None,
+                  pinned_sections: list[int] | None = None) -> RetrievalResult: ...
+# pinned_sections (spec 08 guarantee requests): those sections' chunks are appended by chunk id after the search
+# hits, unranked (`via="pinned"`); common sections give every common chunk (each §15 FAQ pair), others the product's.
 def similar_sql_examples(question: str, k: int = 3) -> list[VerifiedQuery]: ...
 ```
 

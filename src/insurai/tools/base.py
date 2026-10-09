@@ -13,6 +13,7 @@ import duckdb
 from pydantic import BaseModel
 
 from insurai import db
+from insurai.guardrails.pii import redact_for_logs
 from insurai.observability import get_logger
 from insurai.observability.progress import emit_progress, status_args
 from insurai.observability.tracing import tool_span
@@ -50,7 +51,13 @@ def tool[**P, R: BaseModel](fn: Callable[P, R]) -> Callable[P, R]:
             kind = str(getattr(result, "kind", "ok"))
             span.set_attributes({"tool.duration_ms": ms, "tool.result_size": size, "tool.result_kind": kind})
         log.info(
-            "tool %s trace=%s args=%s kind=%s ms=%.1f size=%d", name, ctx.trace_id, safe_args, kind, ms, size
+            "tool %s trace=%s args=%s kind=%s ms=%.1f size=%d",
+            name,
+            ctx.trace_id,
+            redact_for_logs(safe_args, ctx.persona),
+            kind,
+            ms,
+            size,
         )
         return result  # type: ignore[return-value]
 

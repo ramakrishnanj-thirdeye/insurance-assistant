@@ -20,7 +20,7 @@ from insurai.settings import get_settings
 from insurai.tools.analytics import AnalyticsRejected, AnalyticsResult
 from insurai.tools.base import redact_args
 from insurai.tools.knowledge import CoverageCells
-from insurai.tools.messages import refusal
+from insurai.tools.messages import guardrails, refusal
 from insurai.tools.registry import TOOLS
 from insurai.tools.schemas import (
     AccessDenied,
@@ -146,14 +146,25 @@ def claim_tools(payload: WorkerInput) -> dict[str, Any]:
             if policy_id is None and e.claim_id:
                 claim = rec.call("get_claim", claim_id=e.claim_id)
                 policy_id = claim.policy_id if isinstance(claim, ClaimView) else None
-            if policy_id:
-                rec.call("get_policy", policy_id=policy_id)
+            if policy_id and isinstance(policy := rec.call("get_policy", policy_id=policy_id), PolicyView):
+                _schedule_wording(rec, policy)
         case "hospital_check":
             _hospital(rec)
         case "customer_summary":
             if e.customer_id or e.hospital_name is None:
                 rec.call("get_customer_summary", customer_id=e.customer_id)
     return rec.output(start)
+
+
+def _schedule_wording(rec: Recorder, policy: PolicyView) -> None:
+    """A policy_details question about a schedule value the wording also sets (spec 08 conflict concepts, e.g.
+    the waiting period): add the product's coverage cell, so a differing wording value is shown with the
+    precedence sentence (conflict rendering), even when the planner sent no policy_question."""
+    _, hints = expand(rec.intent.sub_question)
+    for cfg in guardrails()["conflict_rendering"]["concepts"].values():
+        attribute = cfg["coverage_attribute"]
+        if ATTRIBUTE_SECTIONS.get(attribute) in hints:
+            rec.call("get_coverage", product=policy.product_name, attribute=attribute)
 
 
 def _hospital(rec: Recorder) -> None:
@@ -181,7 +192,10 @@ def policy_rag(payload: WorkerInput) -> dict[str, Any]:
             result = rec.call("get_coverage", product=e.product, attribute=attribute)
             if e.policy_type and isinstance(result, CoverageCells):
                 _keep_policy_type(rec, e.policy_type)
-    rec.call("search_policy", query=rec.intent.sub_question, product=e.product, policy_type=e.policy_type)
+    pinned = {"pinned_sections": rec.intent.pinned_sections} if rec.intent.pinned_sections else {}
+    rec.call(
+        "search_policy", query=rec.intent.sub_question, product=e.product, policy_type=e.policy_type, **pinned
+    )
     return rec.output(start)
 
 
@@ -260,6 +274,8 @@ def to_evidence(intent_id: str, worker: str, result: BaseModel) -> Evidence:
                 for h in result.chunks
             ],
         }
+        if pinned := [h.chunk.citation_label for h in result.chunks if h.via == "pinned"]:
+            payload["pinned"] = list(dict.fromkeys(pinned))  # fetched by chunk id, not ranked (spec 08)
         labels = ", ".join(h.chunk.citation_label for h in result.chunks) or "none"
         return Evidence(
             intent_id=intent_id,

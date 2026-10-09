@@ -88,10 +88,17 @@ class ScriptedChatModel(BaseChatModel):
         return self.bind(schema_name=schema.__name__) | RunnableLambda(parse)
 
 
+GROUNDED = {"claims": [], "conflict_rule_followed": None}  # V7 verdict: nothing unsupported
+
+
 def install(monkeypatch: Any, responses: dict[str, Responder], **kwargs: Any) -> ScriptedChatModel:
-    """Route every LLM call (structured and plain) to one scripted model."""
+    """Route every LLM call (structured and plain) to one scripted model.
+
+    The V7 judge (GroundednessVerdict) answers "all supported" unless the test scripts it: tests run on the
+    settings.yaml profile (api-lite), where guardrails.v7_live is on."""
     from insurai.llm import structured
 
+    responses = {"GroundednessVerdict": lambda messages: GROUNDED, **responses}
     model = ScriptedChatModel(responses=responses, **kwargs)
     monkeypatch.setattr(structured, "get_model", lambda role: model)
     return model

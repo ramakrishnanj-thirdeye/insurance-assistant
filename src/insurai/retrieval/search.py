@@ -7,11 +7,12 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 
 from qdrant_client import QdrantClient, models
 
-from insurai.knowledge.parse import ALL, slug
+from insurai.knowledge.parse import ALL, build_chunks, parse_corpus, slug
 from insurai.knowledge.schemas import PolicyChunk
 from insurai.observability import get_logger
 from insurai.retrieval import embed
@@ -38,6 +39,7 @@ def search_policy(
     policy_type: str | None = None,
     section_hints: list[int] | None = None,
     cfg: RetrievalConfig | None = None,
+    pinned_sections: list[int] | None = None,
 ) -> RetrievalResult:
     cfg = cfg or RetrievalConfig()
     if cfg.use_rewrite:
@@ -69,13 +71,18 @@ def search_policy(
     confident = is_confident(hits, s.rerank_threshold, reranked=cfg.use_rerank)
     with _timed(timings, "pack"):
         chunks = context_pack(hits, lambda ids: _lookup(client, ids), s.neighbour_sections)
+        if pinned_sections:
+            chunks = with_pinned(
+                chunks, pinned_chunk_ids(pinned_sections, product), lambda ids: _lookup(client, ids)
+            )
     timings["total"] = round((time.perf_counter() - start) * 1000, 1)
 
     log.info(
-        "search_policy trace=%s product=%s hits=%s confident=%s total_ms=%.0f",
+        "search_policy trace=%s product=%s hits=%s pinned=%s confident=%s total_ms=%.0f",
         ctx.trace_id,
         product,
         [h.chunk.chunk_id for h in hits],
+        [c.chunk.chunk_id for c in chunks if c.via == "pinned"],
         confident,
         timings["total"],
     )
@@ -184,6 +191,47 @@ def context_pack(
         if i in found
     ]
     return [*hits, *neighbours]
+
+
+def pinned_chunk_ids(sections: list[int], product: str | None) -> list[str]:
+    """Chunk ids of `sections` as `make index` writes them (knowledge.parse.build_chunks over the corpus):
+    every common chunk of a section (each §15 FAQ pair included), else the product's own chunk."""
+    by_section = _corpus_chunk_ids()
+    ids: list[str] = []
+    for no in sections:
+        for chunk_id, chunk_product in by_section.get(no, []):
+            if chunk_product in (ALL, product):
+                ids.append(chunk_id)
+    return ids
+
+
+def with_pinned(
+    chunks: list[RetrievedChunk], ids: list[str], lookup: Callable[[list[str]], dict[str, PolicyChunk]]
+) -> list[RetrievedChunk]:
+    """Append the pinned chunks (by id, unranked) that search did not return; search hits stay first."""
+    seen = {c.chunk.chunk_id for c in chunks}
+    wanted = [i for i in ids if i not in seen]
+    if not wanted:
+        return chunks
+    found = lookup(wanted)
+    pinned = [
+        RetrievedChunk(
+            chunk=found[i], fused_rank=NEIGHBOUR_RANK, rerank_score=None, boosted=False, via="pinned"
+        )
+        for i in wanted
+        if i in found
+    ]
+    return [*chunks, *pinned]
+
+
+@lru_cache(maxsize=1)
+def _corpus_chunk_ids() -> dict[int, list[tuple[str, str]]]:
+    """section_no -> [(chunk_id, product)] from the wordings (read only; cached per process)."""
+    chunks = build_chunks(parse_corpus(get_settings().paths.policy_docs_dir))
+    out: dict[int, list[tuple[str, str]]] = {}
+    for c in chunks:
+        out.setdefault(c.section_no, []).append((c.chunk_id, c.product))
+    return out
 
 
 def to_sources(chunks: list[RetrievedChunk]) -> list[SourceRef]:

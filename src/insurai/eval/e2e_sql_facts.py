@@ -14,6 +14,7 @@ from insurai import db
 from insurai.agent import graph as agent_graph
 from insurai.agent.checkpoint import memory_saver
 from insurai.agent.runner import pending_review, resume, run_turn
+from insurai.eval.groundedness import final_checks, verifier_pass_rates
 from insurai.eval.sql_facts import load_dataset
 from insurai.guardrails.verify import number_tokens
 from insurai.observability import get_logger
@@ -78,10 +79,10 @@ def run_slice() -> dict[str, Any]:
             result = run_turn(graph, thread, item.turns[0]["content"], item.persona, item.principal_id)
             if pending_review(graph, thread) is not None:
                 result = resume(graph, thread, ReviewDecision(action="approve", note="eval auto-approve"))
-            answer, error = result.answer_markdown, None
+            answer, error, checks = result.answer_markdown, None, final_checks(result.trace)
         except Exception as exc:  # scored as a miss
             log.exception("e2e item %s failed", item.id)
-            answer, error = "", f"{type(exc).__name__}: {exc}"
+            answer, error, checks = "", f"{type(exc).__name__}: {exc}", []
         hit = gold_in_answer(golds[item.id], answer)
         rows.append(
             {
@@ -91,6 +92,7 @@ def run_slice() -> dict[str, Any]:
                 "hit": hit,
                 "answer": answer[:300],
                 "error": error,
+                "checks": checks,
             }
         )
         log.info("e2e %s hit=%s", item.id, hit)
@@ -100,5 +102,6 @@ def run_slice() -> dict[str, Any]:
         "scored": len(scored),
         "gold_in_answer": round(sum(bool(r["hit"]) for r in scored) / len(scored), 4) if scored else 0.0,
         "misses": [r["id"] for r in scored if not r["hit"]],
+        "verifier_pass": verifier_pass_rates(rows),  # spec 08 eval hook: V1–V7 on each final answer
     }
     return {"metrics": metrics, "items": rows}

@@ -19,17 +19,20 @@ from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.resolve import fast_path_plan, is_fast_path, resolve_entities
 from insurai.agent.respond import guard_event, respond
-from insurai.agent.schemas import NO_WORKER, AnswerDraft, Entities, Evidence, Plan, Reset
+from insurai.agent.schemas import NO_WORKER, AnswerDraft, Entities, Evidence, Plan, Reset, TraceEvent
 from insurai.agent.state import AgentState, worker_payload
 from insurai.agent.synthesize import abstain_draft, analytics_draft, last_question, synthesize
 from insurai.agent.trace import event, instant, llm_events, now_ms
 from insurai.agent.workers import WORKER_FOR, analytics_sql, claim_tools, policy_rag
+from insurai.guardrails.groundedness import V7_INTENTS, judge_groundedness
+from insurai.guardrails.hidden import lookup_hidden
 from insurai.guardrails.input import check_input
-from insurai.guardrails.verify import labels_in, rewrite_guarantees, verify
+from insurai.guardrails.schemas import GroundednessVerdict, VerificationReport
+from insurai.guardrails.verify import Judge, labels_in, rewrite_guarantees, v7_skipped, verify
 from insurai.llm.structured import StructuredOutputError, structured_call
 from insurai.observability import get_logger
 from insurai.rules.narrative import premise_correction, render_assessment
-from insurai.settings import ROOT, get_settings
+from insurai.settings import ROOT, get_settings, v7_live_now
 from insurai.tools.customers import own_claims, own_products
 from insurai.tools.messages import refusal
 from insurai.tools.registry import TOOLS
@@ -116,7 +119,8 @@ def resolve_context(state: AgentState, config: RunnableConfig) -> dict[str, Any]
         for tool_name, arg in (("get_claim", resolved.claim_id), ("get_policy", resolved.policy_id)):
             if arg and isinstance(TOOLS[tool_name](ctx, arg), AccessDenied):
                 update["refusal"] = refusal("ACCESS_DENIED")
-    fast = "refusal" not in update and is_fast_path(text) and resolved.claim_id is not None
+    guarantee = bool(state.get("guard") and state["guard"].guarantee_request)  # needs §15 and the dossier
+    fast = "refusal" not in update and not guarantee and is_fast_path(text) and resolved.claim_id is not None
     if fast:
         update |= {"fast_path": True, "plan": fast_path_plan(text, resolved.claim_id)}  # type: ignore[arg-type]
     update["trace"] = [
@@ -165,6 +169,7 @@ def planner(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         own_claims=lambda: own_claims(ctx),
         product_of=lambda e: _product_of(ctx, e),
         product_probe=lambda q: _product_probe(ctx, q),
+        guarantee_request=bool(state.get("guard") and state["guard"].guarantee_request),
     )
     final = planner_mod.finalize_plan(plan, pctx)
     trace.append(
@@ -175,6 +180,8 @@ def planner(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
             raw=[i.type for i in plan.intents],
             pruned=pctx.pruned,
             promoted=pctx.promoted,
+            guarantee_request=pctx.guarantee_request,
+            guarantee_added=pctx.guarantee_added,
             intents=[
                 {"id": i.id, "type": i.type, "entities": i.entities.set_fields()} for i in final.intents
             ],
@@ -201,7 +208,7 @@ def _product_probe(ctx: Any, question: str) -> planner_mod.ProbeOutcome:
     return "common" if chunks[0].chunk.product == "ALL" else "product"
 
 
-def verify_node(state: AgentState) -> dict[str, Any]:
+def verify_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     start = now_ms()
     draft = state["draft"]
     evidence = state.get("evidence", [])
@@ -209,12 +216,22 @@ def verify_node(state: AgentState) -> dict[str, Any]:
     if decision := state.get("review"):
         question += "\n" + decision.note  # the reviewer's note may carry numbers (V3), like the question
     as_of = get_settings().as_of_date
-    report = verify(draft, evidence, state["persona"], question, as_of)  # type: ignore[arg-type]
+    persona, principal = state["persona"], state.get("principal_id")
+    hidden = lookup_hidden(principal) if persona == "customer" and principal else None
+    judge_trace: list[TraceEvent] = []
+    judge, v7_note = _v7_judge(state, draft, config, judge_trace)  # type: ignore[arg-type]
+
+    def run(d: AnswerDraft) -> VerificationReport:
+        return verify(d, evidence, persona, question, as_of, hidden=hidden, judge=judge)
+
+    report = run(draft)  # type: ignore[arg-type]
     rewritten = False
     if not report.passed and [c.check for c in report.checks if not c.passed] == ["V4"]:
         draft = draft.model_copy(update={"answer_markdown": rewrite_guarantees(draft.answer_markdown)})  # type: ignore[union-attr]
-        report = verify(draft, evidence, state["persona"], question, as_of)  # type: ignore[arg-type]
+        report = run(draft)  # type: ignore[arg-type]
         rewritten = True
+    if v7_note and report.passed:
+        report = report.model_copy(update={"checks": [*report.checks, v7_skipped(v7_note)]})
     attempts = state.get("attempts", 0)
     update: dict[str, Any] = {"verification": report, "draft": draft}
     if report.passed:
@@ -234,9 +251,38 @@ def verify_node(state: AgentState) -> dict[str, Any]:
             attempts=attempts,
             v4_rewrite=rewritten,
             checks=[c.model_dump() for c in report.checks],
-        )
+        ),
+        *judge_trace,
     ]
     return update
+
+
+V7_OFF_NOTE = "guardrails.v7_live is off for profile {profile}; V7 runs in the eval only"
+
+
+def _v7_judge(
+    state: AgentState, draft: AnswerDraft, config: RunnableConfig, trace: list[TraceEvent]
+) -> tuple[Judge | None, str | None]:
+    """(judge, note): the V7 judge when this answer needs one and v7_live is on; otherwise a trace note when
+    V7 would have run. Judge calls land in `trace`; a judge error skips V7 (logged, and the check says so)."""
+    plan = state.get("plan")
+    if not draft.llm_written or not plan or not any(i.type in V7_INTENTS for i in plan.intents):
+        return None, None
+    if not v7_live_now():
+        return None, V7_OFF_NOTE.format(profile=get_settings().llm.profile)
+    turn = state["turn"]
+
+    def judge(answer: str, evidence: list[Evidence]) -> GroundednessVerdict | None:
+        start = now_ms()
+        try:
+            verdict, call = judge_groundedness(answer, evidence, config)
+        except StructuredOutputError:
+            log.warning("V7 judge failed on turn %s; V7 skipped", turn)
+            return None
+        trace.extend(llm_events(call, turn, start))
+        return verdict
+
+    return judge, None
 
 
 def fallback_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDraft:

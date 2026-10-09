@@ -2,8 +2,9 @@
 
 `finalize_plan` promotes summary and why questions to claim_analysis (rule 10), prunes intents whose
 trigger words are absent (rule 9), fills IDs from the message and active_entities, resolves products
-(rule 2), caps the intent count (rule 6), sets explain vs assess on claim_analysis intents and turns
-unresolvable gaps into clarifications. It never invents an ID.
+(rule 2), caps the intent count (rule 6), sets explain vs assess on claim_analysis intents, turns
+unresolvable gaps into clarifications and, on a guarantee request, adds the §14/§15 wording and the claim's
+needs (spec 08). It never invents an ID.
 """
 
 import json
@@ -13,7 +14,7 @@ from typing import Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from insurai.agent import routing
+from insurai.agent import guarantee, routing
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.resolve import canonical_product, product_names
 from insurai.agent.schemas import NO_WORKER, Entities, Intent, Plan
@@ -45,6 +46,8 @@ class PlanContext:
     notes: list[str] = field(default_factory=list)
     pruned: list[str] = field(default_factory=list)  # intent types dropped by rule 9 (trace)
     promoted: int = 0  # claim_status intents turned into claim_analysis by rule 10 (trace)
+    guarantee_request: bool = False  # spec 08: §14/§15 pinned, the claim's needs, explain mode
+    guarantee_added: list[str] = field(default_factory=list)  # intent types the guarantee rule added (trace)
 
 
 def planner_messages(
@@ -104,7 +107,19 @@ def finalize_plan(plan: Plan, ctx: PlanContext) -> Plan:
             update |= {"mode": mode, "question": ctx.message}
         out.append(intent.model_copy(update=update))
     out = routing.dedupe(out)
+    if ctx.guarantee_request:
+        out = _guarantee(out, ctx)
     return Plan(intents=[i.model_copy(update={"id": f"i{n}"}) for n, i in enumerate(out, start=1)])
+
+
+def _guarantee(intents: list[Intent], ctx: PlanContext) -> list[Intent]:
+    claim_id = ctx.resolved.claim_id or ctx.active.claim_id
+    product = canonical_product(ctx.resolved.product) or (
+        ctx.product_of(Entities(claim_id=claim_id)) if claim_id else None
+    )
+    out = guarantee.augment(intents, ctx.message, claim_id, product)
+    ctx.guarantee_added = [i.type for i in out[len(intents) :]]
+    return out
 
 
 def _fill(intent: Intent, ctx: PlanContext) -> Entities:

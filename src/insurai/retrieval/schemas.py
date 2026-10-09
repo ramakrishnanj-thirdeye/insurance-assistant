@@ -30,7 +30,7 @@ class RetrievedChunk(BaseModel):
     fused_rank: int  # 1-based rank after fusion (or after the single retriever)
     rerank_score: float | None  # cross-encoder score plus any section boost; None without rerank
     boosted: bool
-    via: Literal["search", "neighbour"]
+    via: Literal["search", "neighbour", "pinned"]
 
 
 class RetrievalResult(BaseModel):

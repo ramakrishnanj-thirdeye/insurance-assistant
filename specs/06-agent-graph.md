@@ -82,7 +82,9 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 5. **Schedule vs wording**: policy_details is one policy's schedule from get_policy (recorded status, effective status,
    sum insured, waiting period, co-pay, deductible); policy_question is what a product's wording says. When a question
    needs both ("what is my waiting period?" with a policy in context), the planner emits both intents so the answer
-   shows schedule and wording side by side under the spec 08 conflict rule.
+   shows schedule and wording side by side under the spec 08 conflict rule. When the planner sends policy_details
+   alone, the claim_tools worker still fetches the product's coverage cell for a conflict concept the question asks
+   about (glossary section hint, e.g. §4 waiting period), so the conflict renders (spec 08, seen on qwen3:8b).
 6. Max 4 intents per message (settings.agent.max_parallel_workers); extra intents → answer the first 4 and say so.
 7. **Counts vs one entity** (decided 2026-10-05): counts, rates, totals and trends across many records are analytics;
    a question about one specific customer, policy or claim named by ID uses that entity's intent (customer_summary,

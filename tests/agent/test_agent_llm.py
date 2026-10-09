@@ -12,6 +12,7 @@ import pytest
 from insurai.agent.runner import run_turn
 from insurai.eval.routing import plan_only
 from insurai.settings import get_settings
+from insurai.tools.messages import guardrails
 
 pytestmark = [pytest.mark.llm, pytest.mark.integration]
 
@@ -62,3 +63,16 @@ def test_AC_06_09_real_model_reports_tokens_for_every_llm_call(
     for e in llm:
         assert e.data["input_tokens"] and e.data["output_tokens"], e.data
         assert e.data["model"] == "qwen3:8b" and e.data["latency_ms"] > 0
+
+
+@pytest.mark.usefixtures("index_path")
+def test_AC_08_09_conflict_rendering_live(monkeypatch: pytest.MonkeyPatch, graph: Any) -> None:
+    """Real planner and synthesizer: POL200025 (Health Secure Plus) has a schedule waiting period of 0 days,
+    the wording §4 says 30 days. The answer shows both with the precedence sentence (by the model or by the
+    deterministic completion)."""
+    _use_profile(monkeypatch, "local")
+    result = run_turn(graph, "llm-ac0809", "What's the waiting period on POL200025?", "claims_agent")
+    answer = result.answer_markdown
+    assert "0 days" in answer and "30 days" in answer, answer
+    assert guardrails()["conflict_rendering"]["precedence_sentence"] in answer, answer
+    assert "[policies:POL200025]" in answer and "[Health Secure Plus §4 Waiting Period]" in answer, answer

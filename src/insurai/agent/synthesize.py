@@ -13,11 +13,13 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from insurai.agent.answers import claim_status_text, template_draft
+from insurai.agent.guarantee import NEEDS_INTENTS, ensure_guarantee_answer
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.schemas import ALL_ROWS, AnswerDraft, Evidence, Plan
 from insurai.agent.state import AgentState
 from insurai.agent.trace import llm_events, now_ms
+from insurai.guardrails.conflicts import ensure_conflicts_rendered
 from insurai.guardrails.verify import NO_RESULT_KINDS, labels_in
 from insurai.llm.structured import text_call
 from insurai.rules.narrative import premise_correction
@@ -29,7 +31,7 @@ def synthesize(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     evidence = state.get("evidence", [])
     turn = state.get("turn", 0)
     if draft := deterministic_draft(state, evidence):
-        return {"draft": draft}
+        return {"draft": complete(state, draft, evidence)}
     question = last_question(state)
     feedback = state["verification"].feedback if state.get("verification") and state.get("attempts") else ""
     messages = synth_messages(state, question, evidence, feedback)
@@ -38,9 +40,28 @@ def synthesize(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     text, call = text_call("generator", messages, prompt.id, prompt.version, config)
     trace = llm_events(call, turn, start)
     if not text:
-        return {"draft": abstain_draft(evidence), "trace": trace}
+        return {"draft": complete(state, abstain_draft(evidence), evidence), "trace": trace}
     text = with_premise_correction(text, state.get("plan"), evidence, question)
-    return {"draft": AnswerDraft(answer_markdown=text, citations=labels_in(text)), "trace": trace}
+    draft = AnswerDraft(answer_markdown=text, citations=labels_in(text), llm_written=True)
+    return {"draft": complete(state, draft, evidence), "trace": trace}
+
+
+def complete(state: AgentState, draft: AnswerDraft, evidence: list[Evidence]) -> AnswerDraft:
+    """Spec 08 deterministic completions before verify: schedule/wording conflicts shown with the
+    precedence sentence; on a guarantee request, the mandated wording cited to §15 and the claim's needs."""
+    draft = ensure_conflicts_rendered(draft, evidence)
+    guard = state.get("guard")
+    if guard is not None and guard.guarantee_request:
+        draft = ensure_guarantee_answer(draft, evidence, guarantee_claim(state.get("plan")))
+    return draft
+
+
+def guarantee_claim(plan: Plan | None) -> str | None:
+    """The claim a guarantee turn is about: the one its claim_analysis or claim_documents intent names."""
+    intents = plan.intents if plan else []
+    return next(
+        (i.entities.claim_id for i in intents if i.type in NEEDS_INTENTS and i.entities.claim_id), None
+    )
 
 
 def with_premise_correction(text: str, plan: Plan | None, evidence: list[Evidence], question: str) -> str:
@@ -99,7 +120,9 @@ def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDr
         and assessment
         and assessment.narrative
     ):
-        return AnswerDraft(answer_markdown=assessment.narrative, citations=labels_in(assessment.narrative))
+        return AnswerDraft(
+            answer_markdown=assessment.narrative, citations=labels_in(assessment.narrative), llm_written=True
+        )
     if evidence and all(_unanswered_unfiltered(ev) for ev in evidence):
         return abstain_draft(evidence)  # routing rule 2: no product and no confident clause anywhere
     if not state.get("attempts"):  # a verify retry goes to the generator with the feedback
@@ -126,7 +149,12 @@ def narrative_is_answer(plan: Plan | None) -> bool:
 
 
 def _unanswered_unfiltered(ev: Evidence) -> bool:
-    return ev.kind == "RetrievalResult" and ev.payload.get("unfiltered") and not ev.payload.get("confident")
+    return (
+        ev.kind == "RetrievalResult"
+        and ev.payload.get("unfiltered")
+        and not ev.payload.get("confident")
+        and not ev.payload.get("pinned")  # a guarantee turn's §14/§15 answer it (spec 08)
+    )
 
 
 def abstain_draft(evidence: list[Evidence]) -> AnswerDraft:

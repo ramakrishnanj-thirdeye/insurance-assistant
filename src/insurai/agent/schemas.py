@@ -53,6 +53,8 @@ class Intent(BaseModel):
     # the dossier checks for a false premise (spec 07).
     mode: SkipJsonSchema[Literal["assess", "explain"] | None] = None
     question: SkipJsonSchema[str | None] = None
+    # policy_question on a guarantee turn: sections fetched by chunk id next to the search (spec 08).
+    pinned_sections: SkipJsonSchema[list[int] | None] = None
 
 
 class Plan(BaseModel):
@@ -75,6 +77,8 @@ class Evidence(BaseModel):
 class AnswerDraft(BaseModel):
     answer_markdown: str  # every factual sentence ends with ≥ 1 citation label from evidence
     citations: list[str] = Field(default_factory=list)  # labels parsed from answer_markdown (regex)
+    # Model-written text (generator or dossier narrative), not a deterministic template: V7 judges only these.
+    llm_written: SkipJsonSchema[bool] = False
 
 
 class Reset(BaseModel):

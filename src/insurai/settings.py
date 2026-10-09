@@ -133,6 +133,12 @@ class LoggingSettings(_Section):
     level: str = "INFO"
 
 
+class GuardrailSettings(_Section):
+    # V7 (LLM groundedness judge) in the request path, per llm profile. Off for local: the judge is another
+    # model family and Ollama would swap models on every answer; V7 then runs in the eval only (spec 08).
+    v7_live: dict[str, bool] = Field(default_factory=dict)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="INSURAI__",
@@ -155,6 +161,7 @@ class Settings(BaseSettings):
     tracing: TracingSettings
     eval: EvalSettings = Field(default_factory=EvalSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    guardrails: GuardrailSettings = Field(default_factory=GuardrailSettings)
 
     # Secrets and hosts come from .env / the environment under their conventional names (no prefix).
     anthropic_api_key: SecretStr | None = Field(
@@ -177,6 +184,12 @@ class Settings(BaseSettings):
             settings_cls, yaml_file=CONFIG_FILE, yaml_file_encoding="utf-8"
         )
         return init_settings, env_settings, dotenv_settings, yaml_settings
+
+
+def v7_live_now() -> bool:
+    """Whether V7 runs in the request path for the current llm profile (missing profile: off)."""
+    s = get_settings()
+    return s.guardrails.v7_live.get(s.llm.profile, False)
 
 
 @lru_cache(maxsize=1)

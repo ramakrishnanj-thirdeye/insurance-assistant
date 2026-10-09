@@ -8,7 +8,9 @@ With the LLM (the dossier subgraph on an InMemorySaver, auto-approving a review)
   persona is not a customer (spec 06 explain vs assess);
 - blocker_mention: share of `labels.must_mention` phrases in the narrative (case-insensitive), per item;
 - invented_findings: findings the judge (judge_invented_findings.md) finds in the narrative but not in
-  the assessment; invented_findings_free is the share of narratives with none (gated at 1.0).
+  the assessment; invented_findings_free is the share of narratives with none (gated at 1.0);
+- v7_pass_rate: the spec 08 V7 groundedness judge on each narrative against the dossier's evidence
+  (reported, not gated; on the local profile V7 runs only here, not in the request path).
 """
 
 import json
@@ -21,13 +23,14 @@ from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field
 
 from insurai.agent.checkpoint import memory_saver
-from insurai.agent.dossier import build_dossier_graph
+from insurai.agent.dossier import assessment_evidence, build_dossier_graph
 from insurai.agent.prompts import load_prompt
-from insurai.agent.schemas import Entities, Intent
+from insurai.agent.schemas import Entities, Evidence, Intent
+from insurai.eval.groundedness import judge_rows, v7_metrics
 from insurai.llm.structured import structured_call
 from insurai.observability import get_logger
 from insurai.rules.engine import evaluate_claim
-from insurai.rules.narrative import narrative_input, question_mode
+from insurai.rules.narrative import narrative_input, premise_correction, question_mode
 from insurai.rules.schemas import ClaimAssessment, ReviewDecision
 from insurai.settings import ROOT
 from insurai.tools.schemas import Persona
@@ -141,6 +144,7 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
     graph = build_dossier_graph(memory_saver()) if with_llm else None
     rows: list[dict[str, Any]] = []
     finals: dict[str, ClaimAssessment | None] = {}
+    evidence: dict[str, list[Evidence]] = {}  # V7 phase 2; not written to the report
     for item in items:
         row: dict[str, Any] = {"id": item.id, "draft": "draft" in item.tags}
         result = evaluate_claim(item.labels["claim_id"], item.persona, principal_id=item.principal_id)
@@ -154,12 +158,17 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
                 final, paused = run_dossier(item, graph)
                 narrative = (final.narrative if final else None) or ""
                 finals[item.id] = final
+                if final is not None:
+                    status = final.facts.get("claim_status")
+                    correction = premise_correction(item.question, final.claim_id, status)
+                    evidence[item.id] = [assessment_evidence(final, correction, "i1")]
                 row |= {
                     "review_interrupt": paused == expected_interrupt(item),
                     "blocker_mention": round(
                         mention_recall(item.labels.get("must_mention", []), narrative), 4
                     ),
                     "narrative": narrative,
+                    "intents": ["claim_analysis"],
                 }
             except Exception as exc:  # one failing item must not sink the slice
                 log.exception("claim_analysis %s failed", item.id)
@@ -174,6 +183,9 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
             except Exception as exc:
                 log.exception("claim_analysis judge %s failed", row["id"])
                 row |= {"error": f"judge {type(exc).__name__}: {exc}"}
+    if graph is not None:
+        judge_rows(rows, evidence, answer_key="narrative")
+    for row in rows:
         log.info("claim_analysis %s %s", row["id"], {k: v for k, v in row.items() if k != "narrative"})
     return {"metrics": metrics(rows, with_llm), "items": rows}
 
@@ -201,6 +213,7 @@ def metrics(rows: list[dict[str, Any]], with_llm: bool) -> dict[str, Any]:
             "invented_findings_free": round(sum(r.get("invented_findings") == 0 for r in rows) / n, 4)
             if n
             else 0.0,
+            **v7_metrics(rows),
         }
     out["wrong"] = [
         r["id"]

@@ -1,12 +1,25 @@
-"""Deterministic input checks (spec 08 input layer): PII masking, injection markers, scope keywords.
+"""Deterministic input checks (spec 08 input layer): PII masking, injection markers, scope keywords, and the
+guarantee-request flag (answered from the wording, never refused).
 
-The small-LLM confirmation of injection hits arrives with spec 08 in M7; until then a marker hit blocks.
+The small-LLM confirmation of injection hits is deferred (3-day scope); a marker hit blocks.
 """
+
+import re
+from functools import lru_cache
 
 from insurai.guardrails.pii import mask
 from insurai.guardrails.schemas import GuardResult
 from insurai.tools.messages import guardrails
 from insurai.tools.schemas import Persona
+
+
+@lru_cache(maxsize=1)
+def _guarantee_patterns() -> list[re.Pattern[str]]:
+    return [re.compile(p, re.IGNORECASE) for p in guardrails()["guarantee_request"]["patterns"]]
+
+
+def is_guarantee_request(text: str) -> bool:
+    return any(p.search(text) for p in _guarantee_patterns())
 
 
 def check_input(text: str, persona: Persona) -> GuardResult:
@@ -26,4 +39,6 @@ def check_input(text: str, persona: Persona) -> GuardResult:
             pii_found=pii,
             reasons=[f"scope: {hits[0]}"],
         )
-    return GuardResult(allowed=True, masked_text=masked, pii_found=pii)
+    return GuardResult(
+        allowed=True, masked_text=masked, pii_found=pii, guarantee_request=is_guarantee_request(masked)
+    )

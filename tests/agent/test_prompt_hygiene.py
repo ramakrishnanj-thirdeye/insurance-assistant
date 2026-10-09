@@ -23,7 +23,8 @@ def _golden_questions() -> list[tuple[str, str]]:
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 item = json.loads(line)
-                out += [(item["id"], t["content"]) for t in item["turns"]]
+                # A `ref` row (eval/datasets/guardrails.jsonl) reuses an item checked in its own dataset.
+                out += [(item["id"], t["content"]) for t in item.get("turns", [])]
     return out
 
 

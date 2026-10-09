@@ -26,8 +26,10 @@ def search_policy(
     product: str | None = None,
     policy_type: str | None = None,
     section_hints: list[int] | None = None,
+    pinned_sections: list[int] | None = None,
 ) -> RetrievalResult | NotFound | AccessDenied:
-    """Search the policy wordings (hybrid retrieval, product-filtered) and return cited clauses."""
+    """Search the policy wordings (hybrid retrieval, product-filtered) and return cited clauses.
+    `pinned_sections` are added by chunk id, unranked (spec 08 guarantee requests: §14, §15)."""
     if not query.strip():
         return NotFound(entity="query", message="Ask a question about the policy wording.")
     if product is not None:
@@ -40,7 +42,12 @@ def search_policy(
             entity="policy_type", message=f"Unknown policy type {policy_type!r}; expected {POLICY_TYPES}."
         )
     return search.search_policy(
-        ctx, query, product=product, policy_type=policy_type, section_hints=section_hints
+        ctx,
+        query,
+        product=product,
+        policy_type=policy_type,
+        section_hints=section_hints,
+        pinned_sections=pinned_sections,
     )
 
 

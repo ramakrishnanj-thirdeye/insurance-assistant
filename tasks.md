@@ -46,7 +46,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [x] Chat page (spec 10 M4 slice, 2026-10-06): `ui/app.py` with persona/principal picker, streamed node and tool progress, Trace expander, review card (approve / override / request info), Conversations list; identity and open thread in the URL; UI client `insurai.api.client` (read timeout `turn_timeout_s` + 30 s). AC-10-03, AC-10-07
 - [ ] Issue: `agent.tool_transport: mcp` deferred (3-day scope); `build_graph` raises NotImplementedError for it
 - [x] claim_dossier internals replaced by the spec 07 engine (2026-10-06)
-- [ ] Issue: input guard is deterministic only (PII, injection markers, scope keywords); small-LLM injection confirmation, GUARANTEE_REQUEST path and V5–V7 land with spec 08 in M7
+- [x] Issue: input guard is deterministic only (PII, injection markers, scope keywords); small-LLM injection confirmation, GUARANTEE_REQUEST path and V5–V7 land with spec 08 in M7. Closed 2026-10-09 (M7a), except the LLM injection confirmation, which is deferred (3-day scope)
 - [ ] Issue: AC-06-10 api-lite smoke skips until an ANTHROPIC_API_KEY exists (local passes)
 - [ ] Issue: AC-06-02 intent below target on qwen3:8b (2026-10-05, 68 items, planner.md v0.3.0): intent 0.8971, entity 0.9853 (target met). Decided: rule 7 (counts vs one entity) fixed SQL017/SQL018; rule 2 probe abstains when nothing is confident (EVAL032); claim/policy intents without an ID but with a product become policy_question (EVAL001/012/018/022/028/030). Remaining model misses: SQL010-012 (extra claim_documents on hospital-via-claim), EVAL021 (hospital_check for cashless repairs), EVAL034 (out_of_scope), MT003 (extra claim_analysis), MT006 (only policy_question for "my waiting period"). Earlier, higher scores relied on few-shots that copied golden IDs and phrasing; now guarded by tests/agent/test_prompt_hygiene.py. Re-measure on api-lite when a key exists. Re-run 2026-10-05 after spec 09 (no planner or prompt change): intent 0.9118, entity 1.0; MT006 passed this time (model run-to-run variance)
 - [ ] Issue: correctness gate needs the spec 11 judge; partial evidence: e2e_sql_facts gold_in_answer 1.0 (19/19 scored, 2026-10-05, local)
@@ -96,12 +96,22 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - **Gate:** AC-02-*; exec_accuracy ≥ 0.90
 
 ## M7 Guardrails + full eval — specs 08, 11
-- [ ] Input guard, verifier V1–V7, conflict rendering, log redaction
+- [x] M7a, spec 08 remainder (2026-10-09): V5 PII leakage, V6 hidden fields (terms and the customer's own values), V7 groundedness judge (verify_groundedness.md v0.3.0), `guardrails.v7_live` (local off: V7 skipped in the trace, eval only; api profiles on), guarantee requests answered from the wording (§14/§15 pinned by chunk id in finalize_plan, the claim's needs, explain mode, no fast path), conflict rendering with a deterministic completion (waiting period), log redaction (PII filter on every insurai logger, `redact_for_logs`). AC-08-01, 04, 06–14
+  - Found by the live AC-08-09 test (qwen3:8b): "What's the waiting period on POL…?" was routed to policy_details alone, so §4 never reached the evidence. The policy_details worker now fetches the product's coverage cell for a conflict concept the question asks about (spec 06 rule 5 note)
+  - Found by eval-fast: V3 feedback repeated a raw phone number from the answer (orphans are now masked); a mandated sentence written without its period before the label got a second copy as the lead (now matched without the period)
+  - Interface additions: `search_policy(..., pinned_sections=None)` (specs 04, 05), `Intent.pinned_sections`, `AnswerDraft.llm_written`, `CheckOutcome.skipped`
+- Recorded 2026-10-09 (`make eval-fast`, local, ~30 min; report fast_20261009T012818Z): gate unchanged, fails only on the known open AC-02-07 (analytics.exec_accuracy 0.6667). policy_clauses recall@5 1.0, mrr 0.95; sql_facts 1.0; routing intent 0.9778 (was 0.9667; misses EVAL021, EVAL034; the guarantee augmentation changed no scored route), entity 1.0; e2e_sql_facts gold_in_answer 1.0, verifier V1–V6 1.0; claim_analysis all gated metrics 1.0 (unchanged). New, report-only:
+  - guardrails slice (re-run after the fixes, fast_20261009T014429Z): not_refused, s15_cited, mandated_wording, conflict_rendered 1.0; V1–V6 1.0; V7 1.0 (2 judged; GRD001 is a template answer)
+  - claim_analysis.v7_pass_rate 0.5 → 0.7 after verify_groundedness.md v0.3.0 (fast_20261009T014151Z). The remaining 3 items (CA006, CA008, CA009) are llama3.1:8b false positives: verbatim next_best_actions, "Untracked documents: none." and list headings, all in the evidence JSON. invented_findings stays 0. Not gated
+- [ ] Issue: V7 judge false positives on llama3.1:8b (claim_analysis 0.7); calibrate with judge_calibration.jsonl (spec 11, M7b) and re-measure on api-lite when a key exists
+- [ ] Issue: conflict concepts sum insured and co-pay deferred (3-day scope); waiting period only
+- [ ] Issue: AC-08-02, AC-08-03, AC-08-05 need the adversarial slice and the full suite (M7b)
+- [~] deferred: 3-day scope. LLM injection confirmation (input rule 2); a marker hit still blocks
 - [ ] comparisons.jsonl (10), adversarial.jsonl (25), judge_calibration.jsonl (20)
 - [ ] Runner, reports, baseline, `make eval-fast` gate
 - **Gate:** AC-08-*, AC-11-*; all spec 00 targets met; baseline committed
 - [ ] Eval follow-up: false-premise adversarial items, e.g. "Why is CLM300210 pending?" (it is Approved); the agent should correct the premise from tool facts. Seen 2026-10-06 on qwen3:8b: the planner routed it to claim_analysis and paused for review instead. Claim-analysis turns now correct it deterministically and explain without pausing (spec 07, AC-06-17); claim_status turns now correct it too (template answers, AC-06-22, 2026-10-07)
-- [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair; guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)
+- [ ] Eval follow-ups: harder clause items (no product named, no shared words, multi-section); distinct labels per §15 FAQ pair (guarantee answers read labels from the chunks, so they keep working); ~~guarantee questions answered with the §15 citation rather than refused (EVAL029/030, spec 08)~~ done in M7a
 
 ## M8 API, UI, demo — specs 09, 10
 - [x] API with SSE and resume, /health, /coverage-matrix, /claims/{id}/dossier (narrate=false, provisional assessment), /eval/reports (spec 09, 2026-10-05)

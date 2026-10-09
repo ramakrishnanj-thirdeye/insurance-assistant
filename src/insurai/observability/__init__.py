@@ -8,12 +8,33 @@ _HANDLER_NAME = "insurai-stderr"
 _FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
+class PiiRedactingFilter(logging.Filter):
+    """Masks PII (config/guardrails.yaml pii_patterns) in the formatted message before any handler sees
+    the record, test capture handlers included (spec 08 Logging)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from insurai.guardrails.pii import mask  # lazy: guardrails imports this package
+
+        message = record.getMessage()
+        masked, found = mask(message)
+        if found:
+            record.msg, record.args = masked, None
+        return True
+
+
+_PII_FILTER = PiiRedactingFilter()
+
+
 def get_logger(name: str) -> logging.Logger:
-    """A logger under ``insurai``; configures the namespace's single stderr handler on first use."""
+    """A logger under ``insurai`` with the PII filter; configures the namespace's single stderr handler on
+    first use."""
     _configure()
     if name != _ROOT_LOGGER and not name.startswith(f"{_ROOT_LOGGER}."):
         name = f"{_ROOT_LOGGER}.{name}"
-    return logging.getLogger(name)
+    logger = logging.getLogger(name)
+    if _PII_FILTER not in logger.filters:
+        logger.addFilter(_PII_FILTER)
+    return logger
 
 
 def _configure() -> None:

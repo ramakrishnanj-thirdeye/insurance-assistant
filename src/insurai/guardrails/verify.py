@@ -1,16 +1,23 @@
-"""Deterministic output checks V1–V4 (spec 08 Output checks). V5–V7 arrive in M7.
+"""Output checks (spec 08 Output layer): deterministic V1–V6 first, then the V7 judge.
 
-V1 citation validity · V2 citation presence · V3 number provenance · V4 no guarantee.
+V1 citation validity · V2 citation presence · V3 number provenance · V4 no guarantee · V5 PII leakage ·
+V6 hidden fields (customer persona) · V7 groundedness (LLM judge, injected as `judge` so this module stays
+pure; it runs only when V1–V6 pass, so a draft that will be retried anyway costs no judge call).
 """
 
 import json
 import re
+from collections.abc import Callable
 from datetime import date
 from functools import lru_cache
 from typing import Any
 
 from insurai.agent.schemas import AnswerDraft, Evidence
-from insurai.guardrails.schemas import CheckOutcome, VerificationReport
+from insurai.guardrails.hidden import hidden_hits
+from insurai.guardrails.leakage import name_leaks, pii_leaks
+from insurai.guardrails.numbers import number_tokens
+from insurai.guardrails.pii import mask
+from insurai.guardrails.schemas import CheckOutcome, GroundednessVerdict, HiddenValues, VerificationReport
 from insurai.tools.messages import guardrails
 from insurai.tools.schemas import Persona
 from insurai.tools.sources import label_regexes
@@ -19,36 +26,11 @@ NO_RESULT_KINDS = frozenset({"not_found", "access_denied", "unavailable"})
 # Payload keys with LLM-written text (the dossier narrative): shown to the synthesizer, never a number source.
 MODEL_WRITTEN_KEYS = frozenset({"narrative"})
 
-# Order matters: dates and IDs first so their digits are not read again as bare numbers.
-_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
-_ID = re.compile(r"\b(?:CLM|POL|CUST|HOSP)\d+\b")
-_NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
+# V7: the judge on a model-written answer; None means the judge failed (V7 is then skipped, never passed).
+Judge = Callable[[str, list[Evidence]], GroundednessVerdict | None]
+
 _LIST_MARKER = re.compile(r"^\s*\d+[.)]\s+", re.MULTILINE)
 _PSEUDO_LABEL = re.compile(r"\[e\d+\]")  # an evidence-block number copied as a citation (M4 root cause)
-
-
-def number_tokens(text: str) -> set[str]:
-    """Normalised numeric tokens: ISO dates, IDs, and numbers with ₹, commas and suffixes stripped.
-
-    Indian and western grouping both normalise (5,00,000 and 500,000 → 500000); 24-month → 24; 12.50 → 12.5.
-    """
-    tokens: set[str] = set()
-    for rx in (_DATE, _ID):
-        tokens.update(rx.findall(text))
-        text = rx.sub(" ", text)
-    for raw in _NUMBER.findall(text):
-        if norm := _norm_number(raw):
-            tokens.add(norm)
-    return tokens
-
-
-def _norm_number(raw: str) -> str | None:
-    digits = raw.replace(",", "").rstrip(".")
-    try:
-        value = float(digits)
-    except ValueError:
-        return None
-    return str(int(value)) if value == int(value) else repr(value)
 
 
 def evidence_tokens(evidence: list[Evidence]) -> set[str]:
@@ -92,11 +74,18 @@ def guarantee_hits(text: str) -> list[str]:
     return [m.group(0) for p in _guarantee_patterns() if (m := p.search(text))]
 
 
+def mandated_span(text: str) -> re.Match[str] | None:
+    """Where the mandated wording appears, case-insensitive and with or without its final period (models write
+    "… claim assessment [label]." as often as "… claim assessment.")."""
+    stem = guardrails()["no_guarantee"]["mandated_wording"].rstrip(".")
+    return re.search(re.escape(stem) + r"\.?", text, re.IGNORECASE)
+
+
 def rewrite_guarantees(text: str) -> str:
     """Replace every sentence that makes a guarantee with the mandated wording (once per answer). Lines are
     kept, so markdown lists and paragraphs keep their shape."""
     mandated = guardrails()["no_guarantee"]["mandated_wording"]
-    used = False
+    used = mandated_span(text) is not None  # already stated (e.g. the guarantee lead): drop promises only
     lines: list[str] = []
     for line in text.split("\n"):
         if not guarantee_hits(line):
@@ -114,7 +103,14 @@ def rewrite_guarantees(text: str) -> str:
 
 
 def verify(
-    draft: AnswerDraft, evidence: list[Evidence], persona: Persona, question: str, as_of: date | None = None
+    draft: AnswerDraft,
+    evidence: list[Evidence],
+    persona: Persona,
+    question: str,
+    as_of: date | None = None,
+    *,
+    hidden: HiddenValues | None = None,
+    judge: Judge | None = None,
 ) -> VerificationReport:
     answer = draft.answer_markdown
     allowed_labels = {ref.label for ev in evidence for ref in ev.sources}
@@ -130,14 +126,21 @@ def verify(
     if as_of is not None:
         allowed_numbers.add(as_of.isoformat())
     answer_numbers = number_tokens(_LIST_MARKER.sub("", strip_labels(answer)))
-    orphans = sorted(answer_numbers - allowed_numbers)
+    # Masked: an orphan may be a phone or Aadhaar number (V5), never repeated in the trace or the feedback.
+    orphans = sorted(dict.fromkeys(mask(n)[0] for n in answer_numbers - allowed_numbers))
 
     hits = guarantee_hits(answer)
+    pii = pii_leaks(answer, evidence)
+    names = name_leaks(answer, evidence, persona)
+    v5_detail = ", ".join([*pii, *([f"{names} customer name(s)"] if names else [])])
+    revealed = hidden_hits(answer, hidden) if persona == "customer" else []
     checks = [
         CheckOutcome(check="V1", passed=not invalid, detail=", ".join(invalid)),
         CheckOutcome(check="V2", passed=v2_ok, detail="" if v2_ok else "factual answer without citations"),
         CheckOutcome(check="V3", passed=not orphans, detail=", ".join(orphans)),
         CheckOutcome(check="V4", passed=not hits, detail=", ".join(hits)),
+        CheckOutcome(check="V5", passed=not v5_detail, detail=v5_detail),
+        CheckOutcome(check="V6", passed=not revealed, detail=", ".join(revealed)),
     ]
     feedback = []
     if pseudo:
@@ -155,10 +158,58 @@ def verify(
         )
     if hits:
         feedback.append("Do not promise outcomes; use: " + guardrails()["no_guarantee"]["mandated_wording"])
+    if v5_detail:
+        feedback.append(
+            "Remove personal data that is not in the evidence (IDs, phone numbers, emails, card or bank "
+            "numbers) and any customer name."
+        )
+    if revealed:
+        feedback.append(
+            "This is a customer: never mention fraud scores, manual review flags or risk segments, "
+            "or their values."
+        )
+
+    unsupported: list[str] = []
+    if judge is not None and all(c.passed for c in checks):
+        v7, unsupported = v7_outcome(judge(answer, evidence))
+        checks.append(v7)
+        if not v7.passed:
+            feedback.append(_v7_feedback(unsupported, v7.detail))
     return VerificationReport(
         passed=all(c.passed for c in checks),
         checks=checks,
         orphan_numbers=orphans,
         invalid_citations=invalid,
+        unsupported_claims=unsupported,
         feedback=" ".join(feedback),
     )
+
+
+CONFLICT_NOT_RENDERED = "conflict shown without both values and the precedence sentence"
+
+
+def v7_outcome(verdict: GroundednessVerdict | None) -> tuple[CheckOutcome, list[str]]:
+    """V7 from the judge's verdict: fails on any unsupported claim or an unrendered conflict."""
+    if verdict is None:
+        return CheckOutcome(check="V7", passed=True, skipped=True, detail="judge error"), []
+    unsupported = [c.text for c in verdict.claims if not c.supported]
+    problems = [f"{len(unsupported)} unsupported claim(s)"] if unsupported else []
+    if verdict.conflict_rule_followed is False:
+        problems.append(CONFLICT_NOT_RENDERED)
+    return CheckOutcome(check="V7", passed=not problems, detail="; ".join(problems)), unsupported
+
+
+def v7_skipped(detail: str) -> CheckOutcome:
+    return CheckOutcome(check="V7", passed=True, skipped=True, detail=detail)
+
+
+def _v7_feedback(unsupported: list[str], detail: str) -> str:
+    parts = []
+    if unsupported:
+        parts.append(f"Remove or fix statements the evidence does not support: {unsupported}.")
+    if CONFLICT_NOT_RENDERED in detail:
+        parts.append(
+            "Show both the policy schedule value and the product wording value, then: "
+            + guardrails()["conflict_rendering"]["precedence_sentence"]
+        )
+    return " ".join(parts)
