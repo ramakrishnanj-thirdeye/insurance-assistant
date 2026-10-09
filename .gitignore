@@ -20,3 +20,4 @@ eval/reports/*
 !eval/reports/.gitkeep
 !eval/reports/baseline.json
 !eval/reports/baseline.md
+eval/calibration/judge_scores.json
