@@ -27,7 +27,7 @@ AS_OF = date(2026, 10, 1)
 CLAIM = "[claims:CLM300500]"
 POLICY = "[policies:POL200025]"
 HSP_S4 = "[Health Secure Plus §4 Waiting Period]"
-S15 = "[All products §15 Training FAQ]"
+S15 = "[All products §15 Training FAQ Q1]"
 MANDATED = "Final decision depends on complete claim assessment."
 RAW_PII = {"aadhaar": "2345 6789 0123", "pan": "ABCDE1234F", "phone": "9876543210"}
 

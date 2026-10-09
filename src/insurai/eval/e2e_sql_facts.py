@@ -14,6 +14,7 @@ from insurai import db
 from insurai.agent import graph as agent_graph
 from insurai.agent.checkpoint import memory_saver
 from insurai.agent.runner import pending_review, resume, run_turn
+from insurai.eval.e2e import refusal_of
 from insurai.eval.groundedness import final_checks, verifier_pass_rates
 from insurai.eval.sql_facts import load_dataset
 from insurai.guardrails.verify import number_tokens
@@ -80,9 +81,10 @@ def run_slice() -> dict[str, Any]:
             if pending_review(graph, thread) is not None:
                 result = resume(graph, thread, ReviewDecision(action="approve", note="eval auto-approve"))
             answer, error, checks = result.answer_markdown, None, final_checks(result.trace)
+            refused = refusal_of(answer, result.trace)
         except Exception as exc:  # scored as a miss
             log.exception("e2e item %s failed", item.id)
-            answer, error, checks = "", f"{type(exc).__name__}: {exc}", []
+            answer, error, checks, refused = "", f"{type(exc).__name__}: {exc}", [], None
         hit = gold_in_answer(golds[item.id], answer)
         rows.append(
             {
@@ -93,6 +95,7 @@ def run_slice() -> dict[str, Any]:
                 "answer": answer[:300],
                 "error": error,
                 "checks": checks,
+                "refused": refused,  # suite false_refusal (spec 11)
             }
         )
         log.info("e2e %s hit=%s", item.id, hit)

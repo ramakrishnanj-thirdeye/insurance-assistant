@@ -102,6 +102,8 @@ handler sees it; the tool log line also goes through `redact_for_logs`.
 - [x] AC-08-12 V7: an unsupported atomic claim fails and fills `unsupported_claims`; `conflict_rule_followed: false` fails; the judge is not called when V1–V6 fail; a judge error is skipped, not passed.
 - [x] AC-08-13 `guardrails.v7_live`: off for local (no judge call, skipped V7 with the eval-only detail in the trace), on for api-lite and api-quality (judge call traced); never judges other intents or template answers.
 - [x] AC-08-14 Guarantee requests (EVAL029, EVAL030 phrasings) are flagged and allowed; the plan gains §14/§15 pinned by chunk id, the claim's needs and explain mode; a phrasing that search alone does not rank to §15 still cites §15.
+- [x] AC-08-15 V7 verbatim pre-check: an atomic claim (sentence or bullet, labels and markdown removed, ≥ `v7.verbatim_min_words` words) whose normalised text is in the evidence is supported without a judge call; the judge sees it as already checked; no call when every claim settles; the eval reports how many it settled.
+- [x] AC-08-16 V1 accepts the per-pair §15 FAQ labels.
 
 ## Eval hooks
 adversarial slice; V1–V7 pass rates reported for every slice. Built so far: the `guardrails` slice (EVAL029 and

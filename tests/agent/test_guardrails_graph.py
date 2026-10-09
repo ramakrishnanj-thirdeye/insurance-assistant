@@ -17,7 +17,7 @@ from insurai.tools.schemas import ToolContext
 pytestmark = pytest.mark.integration
 
 MANDATED = "Final decision depends on complete claim assessment."
-S15 = "[All products §15 Training FAQ]"
+S15 = "[All products §15 Training FAQ Q1]"
 PRECEDENCE = (
     "Your policy schedule governs this policy's numbers; the product wording describes the general terms."
 )

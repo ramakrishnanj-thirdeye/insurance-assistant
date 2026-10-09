@@ -5,6 +5,7 @@ Config F (+LLM rewrite) is deferred with the rewrite stage (3-day scope).
 
 import json
 import math
+import re
 import subprocess
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -26,6 +27,7 @@ SLICE_FILES = ("seed_rag.jsonl", "policy_clauses.jsonl")
 SLICE = "policy_clauses"
 UNANSWERABLE = "unanswerable"
 TOP_K = 5
+FAQ_PAIR = re.compile(r" Q\d+")  # the suffix faq_citation_format adds to a §15 pair's label
 
 CONFIGS: dict[str, RetrievalConfig] = {
     "A": RetrievalConfig(use_dense=True, use_sparse=False, use_filter=False, use_rerank=False),
@@ -69,10 +71,22 @@ def load_policy_slice(datasets: Path = DATASETS) -> list[EvalItem]:
     return items
 
 
+def label_hit(gold: str, label: str) -> bool:
+    """A retrieved or cited label matches a gold label: equal, or a section-level gold (no FAQ pair)
+    against any pair of that section: "All products §15 Training FAQ" matches "[... Training FAQ Q2]"."""
+    g, lab = _bare(gold), _bare(label)
+    if lab == g:
+        return True
+    return lab.startswith(g) and bool(FAQ_PAIR.fullmatch(lab.removeprefix(g)))
+
+
+def any_gold(label: str, gold: list[str]) -> bool:
+    return any(label_hit(g, label) for g in gold)
+
+
 def recall_at_k(labels: list[str], gold: list[str], k: int = TOP_K) -> float:
     """1 if any gold label is among the top k retrieved labels."""
-    wanted = {_bare(g) for g in gold}
-    return 1.0 if any(_bare(label) in wanted for label in labels[:k]) else 0.0
+    return 1.0 if any(any_gold(label, gold) for label in labels[:k]) else 0.0
 
 
 def product_precision_at_k(products: list[str], gold_product: str, k: int = TOP_K) -> float:
@@ -83,9 +97,8 @@ def product_precision_at_k(products: list[str], gold_product: str, k: int = TOP_
 
 def mrr(labels: list[str], gold: list[str], depth: int = 20) -> float:
     """1 / rank of the first gold label, 0 if absent in the top `depth`."""
-    wanted = {_bare(g) for g in gold}
     for rank, label in enumerate(labels[:depth], start=1):
-        if _bare(label) in wanted:
+        if any_gold(label, gold):
             return 1 / rank
     return 0.0
 
@@ -171,12 +184,16 @@ def write_report(suite: str, body: dict[str, Any], out_dir: Path | None = None) 
         "suite": suite,
         "created_at": created.isoformat(timespec="seconds"),
         "git_sha": _git_sha(),
+        "profile": get_settings().llm.profile,
         "retrieval_settings": get_settings().retrieval.model_dump(),
         **body,
     }
     path = out_dir / f"{suite}_{created:%Y%m%dT%H%M%SZ}.json"
-    path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    log.info("report written to %s", path)
+    path.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    from insurai.eval.report import write_markdown  # report -> calibration -> e2e -> this module
+
+    write_markdown(report, path)
+    log.info("report written to %s (+ .md)", path)
     return path
 
 

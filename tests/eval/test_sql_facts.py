@@ -90,5 +90,7 @@ def test_AC_05_02_eval_gate_fails_below_target() -> None:
 
     results = {"sql_facts": {"metrics": {"accuracy": 0.95}}}
     targets = {"sql_facts.accuracy": 1.0, "policy_clauses.recall_at_5": 0.95}
-    assert gate(results, targets) == ["sql_facts.accuracy = 0.95 < target 1.0"]
-    assert gate({"sql_facts": {"metrics": {"accuracy": 1.0}}}, targets) == []
+    assert gate(results, None, targets) == [
+        "sql_facts.accuracy = 0.95 misses target min 1.0 (no baseline value)"
+    ]
+    assert gate({"sql_facts": {"metrics": {"accuracy": 1.0}}}, None, targets) == []

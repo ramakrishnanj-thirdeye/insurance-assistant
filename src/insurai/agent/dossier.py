@@ -29,7 +29,7 @@ from insurai.observability import get_logger
 from insurai.retrieval.schemas import RetrievalResult, RetrievedChunk
 from insurai.rules import engine
 from insurai.rules.narrative import (
-    complete_narrative,
+    complete_narrative_with_additions,
     counts,
     findings,
     narrative_input,
@@ -167,9 +167,11 @@ def narrate(state: DossierState, config: RunnableConfig) -> dict[str, Any]:
     intent = state["intent"]
     correction = state.get("correction")
     start = now_ms()
-    text, call = narrate_text(assessment, correction, intent.question or intent.sub_question, config)
+    text, call, added = narrate_text(assessment, correction, intent.question or intent.sub_question, config)
     assessment = assessment.model_copy(update={"narrative": text})
     trace = llm_events(call, state.get("turn", 0), start) if call else []
+    # spec 11 guard_interventions: what the completeness guard appended to the model's narrative
+    trace.append(instant("node", "narrative_guard", state.get("turn", 0), added=added))
     return {
         "assessment": assessment,
         "evidence": [assessment_evidence(assessment, correction, intent.id)],
@@ -267,9 +269,9 @@ def with_clauses(assessment: ClaimAssessment, clauses: list[RetrievedChunk]) -> 
 
 def narrate_text(
     assessment: ClaimAssessment, correction: str | None, question: str, config: RunnableConfig | None
-) -> tuple[str, Any]:
-    """The LLM narrative with promises rewritten and the completeness guard applied; the deterministic
-    rendering when the model returns nothing."""
+) -> tuple[str, Any, list[str]]:
+    """The LLM narrative with promises rewritten and the completeness guard applied, with what the guard
+    added; the deterministic rendering (nothing added) when the model returns nothing."""
     prompt = load_prompt("dossier_narrative")
     system = prompt.render(
         view=assessment.view,
@@ -280,8 +282,9 @@ def narrate_text(
     text, call = text_call("generator", messages, prompt.id, prompt.version, config)
     text = rewrite_guarantees(text).strip()
     if not text:
-        return render_assessment(assessment, correction), call
-    return complete_narrative(text, assessment, correction), call
+        return render_assessment(assessment, correction), call, []
+    completed, added = complete_narrative_with_additions(text, assessment, correction)
+    return completed, call, added
 
 
 def customer_message(
@@ -351,7 +354,7 @@ def analyze(
     clauses, _ = clauses_for(ctx, result, 0)
     assessment = with_clauses(result, clauses)
     correction = premise_correction(question, claim_id, assessment.facts.get("claim_status"))
-    text, _ = narrate_text(assessment, correction, question or f"Assess claim {claim_id}.", None)
+    text, _, _ = narrate_text(assessment, correction, question or f"Assess claim {claim_id}.", None)
     assessment = assessment.model_copy(update={"narrative": text})
     if assessment.view == "full":
         draft, _ = customer_message(ctx, assessment, None)

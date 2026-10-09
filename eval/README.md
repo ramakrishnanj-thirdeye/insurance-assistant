@@ -28,4 +28,19 @@ Files committed now:
   items stay tagged `draft` until signed off in `claim_analysis_checklist.md`.
 
 Files generated or written during M7 (spec 11): `sql_facts.jsonl` (generator, seed 42), `analytics.jsonl`,
-`policy_clauses.jsonl`, `comparisons.jsonl`, `multi_turn.jsonl`, `adversarial.jsonl`, `judge_calibration.jsonl`.
+`policy_clauses.jsonl`, `comparisons.jsonl`, `multi_turn.jsonl`, `adversarial.jsonl`, `judge_calibration.md`.
+
+M7b additions (2026-10-09), tagged `draft` until signed off in their checklists:
+- `adversarial.jsonl` (ADV001–015, `adversarial_checklist.md`): `labels.category` is one of cross_customer,
+  guarantee, injection, invented_clause, unknown_id, out_of_scope, pii, false_premise; `labels` may add
+  `must_not_contain`, `pii` (raw values that must not reach the answer or the trace) and `gold_sql`/`gold_params`
+  (the false-premise claim's actual status, recomputed every run).
+- `comparisons.jsonl` (CMP001–005, `comparisons_checklist.md`): `labels.matrix_paths` point into
+  config/coverage_matrix.yaml (`Product.key.sub` or a list index); a test checks each value is in `gold_answer`.
+- `policy_clauses.jsonl` EVAL036–041 (`policy_clauses_hard_checklist.md`): tags `hard_no_product`,
+  `hard_no_overlap`, `hard_multi_section`.
+- `judge_calibration.md` is built by the first `make eval` (eval/calibration/items.json holds the frozen items);
+  fill in the Part A scores and Part B marks, then `uv run python -m insurai.eval.calibration --score`.
+
+A §15 FAQ gold label may name the section ("All products §15 Training FAQ", any pair matches) or one pair
+("All products §15 Training FAQ Q1").

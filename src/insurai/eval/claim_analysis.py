@@ -9,8 +9,12 @@ With the LLM (the dossier subgraph on an InMemorySaver, auto-approving a review)
 - blocker_mention: share of `labels.must_mention` phrases in the narrative (case-insensitive), per item;
 - invented_findings: findings the judge (judge_invented_findings.md) finds in the narrative but not in
   the assessment; invented_findings_free is the share of narratives with none (gated at 1.0);
-- v7_pass_rate: the spec 08 V7 groundedness judge on each narrative against the dossier's evidence
-  (reported, not gated; on the local profile V7 runs only here, not in the request path).
+- v7_pass_rate and faithfulness: the spec 08 V7 groundedness judge on each narrative against the
+  dossier's evidence (on the local profile V7 runs only here, not in the request path);
+- correctness: the judge (judge_correctness.md, score >= 4) against a gold answer built from the signed-off
+  labels (`gold_from_labels`; the dataset has no prose gold);
+- guard_interventions (reported, not gated): the share of narratives where the completeness guard had to
+  append something (the dossier's narrative_guard trace event).
 """
 
 import json
@@ -26,7 +30,9 @@ from insurai.agent.checkpoint import memory_saver
 from insurai.agent.dossier import assessment_evidence, build_dossier_graph
 from insurai.agent.prompts import load_prompt
 from insurai.agent.schemas import Entities, Evidence, Intent
+from insurai.eval import correctness
 from insurai.eval.groundedness import judge_rows, v7_metrics
+from insurai.eval.stats import count, prop
 from insurai.llm.structured import structured_call
 from insurai.observability import get_logger
 from insurai.rules.engine import evaluate_claim
@@ -100,8 +106,32 @@ def expected_interrupt(item: ClaimItem) -> bool:
     )
 
 
-def run_dossier(item: ClaimItem, graph: Any) -> tuple[ClaimAssessment | None, bool]:
-    """The dossier subgraph for the item's question; returns (final assessment, whether it paused)."""
+def gold_from_labels(labels: dict[str, Any]) -> str:
+    """A gold answer for the correctness judge, built deterministically from the signed-off labels."""
+    facts = labels.get("facts", {})
+    parts = [f"Claim {labels['claim_id']} is {facts.get('claim_status', 'unknown')}."]
+    if mention := labels.get("must_mention"):
+        parts.append("The answer must mention: " + "; ".join(mention) + ".")
+    missing, pending = labels.get("expected_missing", []), labels.get("expected_pending", [])
+    parts.append("Missing documents: " + (", ".join(missing) or "none") + ".")
+    parts.append("Documents pending verification: " + (", ".join(pending) or "none") + ".")
+    failing = sorted(k for k, v in labels.get("expected_rules", {}).items() if v in ("fail", "review"))
+    if failing:
+        parts.append("Rules failing or needing review: " + ", ".join(failing) + ".")
+    needs = "needs" if labels.get("needs_human_review") else "does not need"
+    parts.append(f"The claim {needs} human review.")
+    return " ".join(parts)
+
+
+def guard_added(trace: list[Any]) -> list[str] | None:
+    """What the completeness guard appended (the narrative_guard trace event); None without the event."""
+    events = [e for e in trace if e.name == "narrative_guard"]
+    return list(events[-1].data.get("added", [])) if events else None
+
+
+def run_dossier(item: ClaimItem, graph: Any) -> tuple[ClaimAssessment | None, bool, list[str] | None]:
+    """The dossier subgraph for the item's question; returns (final assessment, whether it paused, what the
+    completeness guard added)."""
     intent = Intent(
         id="i1",
         type="claim_analysis",
@@ -122,8 +152,8 @@ def run_dossier(item: ClaimItem, graph: Any) -> tuple[ClaimAssessment | None, bo
     paused = bool(graph.get_state(config).interrupts)
     if paused:
         graph.invoke(Command(resume=AUTO_APPROVE), config)
-    assessment = graph.get_state(config).values.get("assessment")
-    return assessment, paused
+    values = graph.get_state(config).values
+    return values.get("assessment"), paused, guard_added(values.get("trace") or [])
 
 
 def judge_invented(assessment: ClaimAssessment, narrative: str) -> InventedFindings:
@@ -155,7 +185,7 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
         row |= score_rules(item, result)
         if graph is not None:
             try:
-                final, paused = run_dossier(item, graph)
+                final, paused, added = run_dossier(item, graph)
                 narrative = (final.narrative if final else None) or ""
                 finals[item.id] = final
                 if final is not None:
@@ -167,8 +197,15 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
                     "blocker_mention": round(
                         mention_recall(item.labels.get("must_mention", []), narrative), 4
                     ),
+                    "mentions": [
+                        sum(
+                            p.casefold() in narrative.casefold() for p in item.labels.get("must_mention", [])
+                        ),
+                        len(item.labels.get("must_mention", [])),
+                    ],
                     "narrative": narrative,
                     "intents": ["claim_analysis"],
+                    "guard_added": added,
                 }
             except Exception as exc:  # one failing item must not sink the slice
                 log.exception("claim_analysis %s failed", item.id)
@@ -184,16 +221,31 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
                 log.exception("claim_analysis judge %s failed", row["id"])
                 row |= {"error": f"judge {type(exc).__name__}: {exc}"}
     if graph is not None:
+        golds = {i.id: (i.question, gold_from_labels(i.labels)) for i in items if i.id in finals}
+        correctness.judge_rows(rows, golds, answer_key="narrative")
         judge_rows(rows, evidence, answer_key="narrative")
-    for row in rows:
-        log.info("claim_analysis %s %s", row["id"], {k: v for k, v in row.items() if k != "narrative"})
-    return {"metrics": metrics(rows, with_llm), "items": rows}
+    for row in rows:  # judge scores are never logged (calibration keeps them sealed)
+        log.info(
+            "claim_analysis %s %s",
+            row["id"],
+            {
+                k: v
+                for k, v in row.items()
+                if k != "narrative" and not k.startswith(("judge_", "v7_evidence"))
+            },
+        )
+    counts: dict[str, list[int]] = {}
+    return {"metrics": metrics(rows, with_llm, counts), "counts": counts, "items": rows}
 
 
-def metrics(rows: list[dict[str, Any]], with_llm: bool) -> dict[str, Any]:
+def metrics(
+    rows: list[dict[str, Any]], with_llm: bool, counts: dict[str, list[int]] | None = None
+) -> dict[str, Any]:
     n = len(rows)
+    counts = counts if counts is not None else {}
 
     def share(key: str) -> float:
+        counts[key] = [sum(bool(r.get(key)) for r in rows), n]
         return round(sum(bool(r.get(key)) for r in rows) / n, 4) if n else 0.0
 
     out: dict[str, Any] = {
@@ -206,6 +258,11 @@ def metrics(rows: list[dict[str, Any]], with_llm: bool) -> dict[str, Any]:
     }
     if with_llm:
         mentions = [r.get("blocker_mention", 0.0) for r in rows]
+        counts["blocker_mention"] = [
+            sum(r["mentions"][0] for r in rows if "mentions" in r),
+            sum(r["mentions"][1] for r in rows if "mentions" in r),
+        ]
+        counts["invented_findings_free"] = [sum(r.get("invented_findings") == 0 for r in rows), n]
         out |= {
             "review_interrupt": share("review_interrupt"),
             "blocker_mention": round(sum(mentions) / n, 4) if n else 0.0,
@@ -213,8 +270,11 @@ def metrics(rows: list[dict[str, Any]], with_llm: bool) -> dict[str, Any]:
             "invented_findings_free": round(sum(r.get("invented_findings") == 0 for r in rows) / n, 4)
             if n
             else 0.0,
-            **v7_metrics(rows),
+            **v7_metrics(rows, counts),
+            **correctness.correctness_metrics(rows, counts),
         }
+        guarded = [r for r in rows if r.get("guard_added") is not None]
+        prop(out, counts, "guard_interventions", *count(bool(r["guard_added"]) for r in guarded))
     out["wrong"] = [
         r["id"]
         for r in rows

@@ -5,9 +5,11 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+
 from insurai.eval.retrieval import (
     CONFIGS,
     EvalItem,
+    label_hit,
     load_policy_slice,
     mrr,
     product_precision_at_k,
@@ -15,7 +17,6 @@ from insurai.eval.retrieval import (
     run_ablation,
     tune_threshold,
 )
-
 from insurai.knowledge.parse import citation_label, slug
 from insurai.knowledge.schemas import PolicyChunk
 from insurai.retrieval.schemas import RetrievalConfig, RetrievalResult, RetrievedChunk
@@ -55,11 +56,23 @@ def test_metrics_follow_spec_11_definitions() -> None:
 
 
 @pytest.mark.unit
-def test_slice_has_30_answerable_and_5_probes_with_real_labels() -> None:
+def test_AC_11_14_section_gold_matches_faq_pair_label() -> None:
+    q2 = "[All products §15 Training FAQ Q2]"
+    assert label_hit("All products §15 Training FAQ", q2)
+    assert label_hit("All products §15 Training FAQ Q2", q2)
+    assert not label_hit("All products §15 Training FAQ Q1", q2)
+    assert not label_hit("All products §1 Purpose", "[All products §15 Training FAQ]")
+    assert recall_at_k([q2], ["All products §15 Training FAQ"]) == 1.0
+    assert mrr(["[X §1 Y]", q2], ["All products §15 Training FAQ"]) == pytest.approx(0.5)
+
+
+@pytest.mark.unit
+def test_slice_has_36_answerable_and_5_probes_with_real_labels() -> None:
     items = load_policy_slice()
     answerable = [i for i in items if not i.unanswerable]
     probes = [i for i in items if i.unanswerable]
-    assert (len(answerable), len(probes)) == (30, 5)
+    assert (len(answerable), len(probes)) == (36, 5)  # 30 + 6 harder items (M7b)
+    no_product = {"EVAL036", "EVAL037"}  # tagged hard_no_product: the question names no product
     assert {f"EVAL00{n}" for n in range(1, 6)} <= {i.id for i in items}
     from insurai.knowledge.parse import build_chunks, parse_corpus
     from insurai.settings import get_settings
@@ -69,7 +82,7 @@ def test_slice_has_30_answerable_and_5_probes_with_real_labels() -> None:
     }
     for item in answerable:
         assert item.gold_sources and set(item.gold_sources) <= real, item.id
-        assert item.product
+        assert bool(item.product) is (item.id not in no_product), item.id
     common = [i for i in answerable if all(s.startswith("All products") for s in i.gold_sources)]
     assert len(common) >= 3
     assert all(not p.gold_sources and p.product is None for p in probes)

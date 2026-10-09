@@ -135,13 +135,25 @@ def complete_narrative(text: str, assessment: ClaimAssessment, correction: str |
     """The completeness guard: the correction leads; the claim's status is stated (cited) when the model left
     it out; any finding message or action the model left out is appended verbatim with its citation, so every
     blocker is mentioned whatever the model wrote."""
+    return complete_narrative_with_additions(text, assessment, correction)[0]
+
+
+def complete_narrative_with_additions(
+    text: str, assessment: ClaimAssessment, correction: str | None = None
+) -> tuple[str, list[str]]:
+    """`complete_narrative` plus what the guard added: the status line, each "Also noted" finding and each
+    "Next steps" action (the spec 11 guard_interventions diagnostic);
+    empty when the model's text was complete."""
     body = text.strip()
     if correction:
         body = body.replace(correction, "").strip()
+    added: list[str] = []
     status = assessment.facts.get("claim_status")
     if status and str(status).casefold() not in f"{correction or ''} {body}".casefold():
         label = sql_source("claims", assessment.claim_id).label
-        body = f"Claim {assessment.claim_id} is {status} {label}.\n\n{body}"
+        line = f"Claim {assessment.claim_id} is {status} {label}."
+        body = f"{line}\n\n{body}"
+        added.append(line)
     seen = _norm(body)
     missing = [
         f"- {r.message} {citation_of(r, assessment)}"
@@ -156,7 +168,7 @@ def complete_narrative(text: str, assessment: ClaimAssessment, correction: str |
     if actions:
         label = sql_source("claims", assessment.claim_id).label
         parts.append("Next steps:\n" + "\n".join(f"- {a} {label}" for a in actions))
-    return "\n\n".join(p for p in parts if p)
+    return "\n\n".join(p for p in parts if p), added + missing + [f"- {a}" for a in actions]
 
 
 def render_assessment(assessment: ClaimAssessment, correction: str | None = None) -> str:

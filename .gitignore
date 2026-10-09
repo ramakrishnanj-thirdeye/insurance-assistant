@@ -19,3 +19,4 @@ data/coverage_draft.yaml
 eval/reports/*
 !eval/reports/.gitkeep
 !eval/reports/baseline.json
+!eval/reports/baseline.md

@@ -126,7 +126,8 @@ class TracingSettings(_Section):
 
 
 class EvalSettings(_Section):
-    targets: dict[str, float] = Field(default_factory=dict)  # "slice.metric" -> minimum
+    # "slice.metric" -> minimum, or {max: x} for a metric where lower is better (suite.false_refusal)
+    targets: dict[str, float | dict[str, float]] = Field(default_factory=dict)
 
 
 class LoggingSettings(_Section):

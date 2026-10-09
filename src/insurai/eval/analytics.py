@@ -150,13 +150,15 @@ def run_item(item: AnalyticsItem) -> dict[str, Any]:
 def run_slice() -> dict[str, Any]:
     items = load_items()
     results = [run_item(item) for item in items]
-    blocked, leaked = unsafe_blocked(load_probes())
+    probes = load_probes()
+    blocked, leaked = unsafe_blocked(probes)
     n = len(results) or 1
     latencies = [r["latency_ms"] for r in results]
     metrics = {
         "items": len(results),
         "exec_accuracy": round(sum(r["exec_ok"] for r in results) / n, 4),
         "unsafe_blocked": blocked,
+        "unsafe_probes": len(probes),
         "repair_rate": round(sum(r["attempts"] == 2 for r in results) / n, 4),
         "rejected_rate": round(sum(r["kind"] == "analytics_rejected" for r in results) / n, 4),
         "latency_p50_ms": _percentile(latencies, 0.5),

@@ -31,7 +31,15 @@ def _narrator(messages: list[Any]) -> str:
 def test_slice_scores_rules_interrupts_mentions_and_judge(
     warehouse_ready: None, index_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    install(monkeypatch, {"Text": _narrator, "InventedFindings": lambda m: {"invented": [], "count": 0}})
+    install(
+        monkeypatch,
+        {
+            "Text": _narrator,
+            "InventedFindings": lambda m: {"invented": [], "count": 0},
+            "CorrectnessScore": lambda m: {"score": 4, "reason": "ok"},
+            "GroundednessVerdict": lambda m: {"claims": []},
+        },
+    )
     result = claim_analysis.run_slice()
     m = result["metrics"]
     assert m["items"] == len(claim_analysis.load_items()) >= 10 and m["draft_items"] == 0
@@ -47,7 +55,10 @@ def test_slice_scores_rules_interrupts_mentions_and_judge(
     )  # the control explains
     assert rows["CA001"]["narrative"]
     targets = {k: v for k, v in get_settings().eval.targets.items() if k.startswith("claim_analysis.")}
-    assert len(targets) == 4 and gate({"claim_analysis": result}, targets) == []
+    assert m["correctness"] == 1.0 and m["faithfulness"] == 1.0
+    assert m["guard_interventions"] == 1.0  # the scripted narrator leaves every finding to the guard
+    assert result["counts"]["correctness"] == [m["items"], m["items"]]
+    assert len(targets) == 6 and gate({"claim_analysis": result}, None, targets) == []
 
 
 def test_judged_inventions_fail_the_gate(
@@ -60,7 +71,7 @@ def test_judged_inventions_fail_the_gate(
     monkeypatch.setattr(claim_analysis, "SOURCES", ("claim_analysis_seed.jsonl",))
     result = claim_analysis.run_slice()
     assert result["metrics"]["invented_findings"] == 3 and result["metrics"]["invented_findings_free"] == 0.0
-    failures = gate({"claim_analysis": result}, get_settings().eval.targets)
+    failures = gate({"claim_analysis": result}, None, get_settings().eval.targets)
     assert any(f.startswith("claim_analysis.invented_findings_free") for f in failures)
 
 

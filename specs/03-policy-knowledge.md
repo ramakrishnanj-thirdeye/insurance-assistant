@@ -70,6 +70,7 @@ def extract_coverage_draft(sections: list[PolicySection]) -> CoverageMatrix: ...
 - [x] AC-03-07 `coverage_grid` meets AC-01-05 (shared test).
 - [~] deferred: 3-day scope. AC-03-08 `extract_coverage_draft` agrees with the committed matrix on ≥ 90% of fields (reported, not gated).
 - [x] AC-03-09 `get_coverage("Health Secure Plus", "maternity")` returns status covered, 24 months, label `[Health Secure Plus §5 Maternity]`.
+- [x] AC-03-10 Each §15 FAQ pair has its own citation label (`faq_citation_format`, e.g. `[All products §15 Training FAQ Q2]`); `section_name` stays "Training FAQ".
 
 ## Eval hooks
 Comparisons slice (10 items) reads gold from the reviewed matrix.

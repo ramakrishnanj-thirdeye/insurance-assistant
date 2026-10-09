@@ -100,10 +100,16 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()[:16]
 
 
-def citation_label(product: str, section_no: int, name: str) -> str:
-    """Label in config/guardrails.yaml citation_format; product "ALL" reads as "All products"."""
+def citation_label(product: str, section_no: int, name: str, faq_pair: int | None = None) -> str:
+    """Label in config/guardrails.yaml citation_format (faq_citation_format for one §15 Q/A pair); product
+    "ALL" reads as "All products"."""
     shown = ALL_LABEL if product == ALL else product
-    return _citation_format().format(product=shown, section_no=section_no, section_name=name)
+    if faq_pair is not None:
+        fmt = _citation_formats()["faq_citation_format"]
+        return fmt.format(product=shown, section_no=section_no, section_name=name, q=faq_pair)
+    return _citation_formats()["citation_format"].format(
+        product=shown, section_no=section_no, section_name=name
+    )
 
 
 def slug(product: str) -> str:
@@ -111,9 +117,9 @@ def slug(product: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _citation_format() -> str:
+def _citation_formats() -> dict[str, str]:
     guardrails = yaml.safe_load(GUARDRAILS_FILE.read_text(encoding="utf-8"))
-    return str(guardrails["citation_format"])
+    return {k: str(guardrails[k]) for k in ("citation_format", "faq_citation_format")}
 
 
 def _source_path(path: Path) -> str:
@@ -143,7 +149,9 @@ def _product_chunk(s: PolicySection) -> PolicyChunk:
     )
 
 
-def _common_chunk(s: PolicySection, chunk_id: str, text: str, header: str) -> PolicyChunk:
+def _common_chunk(
+    s: PolicySection, chunk_id: str, text: str, header: str, faq_pair: int | None = None
+) -> PolicyChunk:
     return PolicyChunk(
         chunk_id=chunk_id,
         product=ALL,
@@ -154,7 +162,7 @@ def _common_chunk(s: PolicySection, chunk_id: str, text: str, header: str) -> Po
         text=text,
         header=header,
         embed_text=f"{header}: {text}",
-        citation_label=citation_label(ALL, s.section_no, s.section_name),
+        citation_label=citation_label(ALL, s.section_no, s.section_name, faq_pair),
         content_hash=content_hash(text),
         source_path=s.source_path,
     )
@@ -164,6 +172,6 @@ def _faq_chunks(s: PolicySection) -> list[PolicyChunk]:
     starts = [m.start() for m in FAQ_QUESTION.finditer(s.text)]
     pairs = [s.text[a:b].strip() for a, b in zip(starts, [*starts[1:], len(s.text)], strict=True)]
     return [
-        _common_chunk(s, f"all-s{s.section_no}-q{k}", pair, f"{_header(ALL_LABEL, s)} › Q{k}")
+        _common_chunk(s, f"all-s{s.section_no}-q{k}", pair, f"{_header(ALL_LABEL, s)} › Q{k}", k)
         for k, pair in enumerate(pairs, start=1)
     ]

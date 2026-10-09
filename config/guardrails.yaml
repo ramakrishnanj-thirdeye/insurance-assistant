@@ -77,7 +77,11 @@ conflict_rendering:               # spec 08 Conflict rendering; deterministic co
       coverage_field: waiting_days
       unit: days
 
+v7:                              # spec 08 V7 groundedness
+  verbatim_min_words: 4           # a claim this long whose normalised text is verbatim in the evidence is supported without a judge call
+
 citation_format: '[{product} §{section_no} {section_name}]'      # e.g. [Health Secure Plus §5 Maternity]
+faq_citation_format: '[{product} §{section_no} {section_name} Q{q}]'  # one §15 FAQ pair, e.g. [All products §15 Training FAQ Q2]
 sql_citation_format: '[{table}:{key}]'                          # e.g. [claims:CLM300210]
 
 refusals:

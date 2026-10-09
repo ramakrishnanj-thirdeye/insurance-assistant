@@ -120,6 +120,12 @@ def test_AC_03_03_faq_split_into_three_pairs(chunks: list[PolicyChunk]) -> None:
     assert faq[1].header == "All products › §15 Training FAQ › Q2"
 
 
+def test_AC_03_10_faq_pairs_have_distinct_citation_labels(chunks: list[PolicyChunk]) -> None:
+    faq = sorted((c for c in chunks if c.section_no == 15), key=lambda c: c.chunk_id)
+    assert [c.citation_label for c in faq] == [f"[All products §15 Training FAQ Q{k}]" for k in (1, 2, 3)]
+    assert all(c.section_name == "Training FAQ" for c in faq)
+
+
 def test_AC_03_03_chunk_ids_unique_and_shaped(chunks: list[PolicyChunk]) -> None:
     ids = [c.chunk_id for c in chunks]
     assert len(set(ids)) == len(ids)
@@ -145,9 +151,14 @@ def test_AC_03_04_citation_label_matches_guardrails_format(chunks: list[PolicyCh
     for c in chunks:
         assert re.fullmatch(pattern, c.citation_label), c.citation_label
         product = "All products" if c.product == "ALL" else c.product
-        assert c.citation_label == fmt.format(
-            product=product, section_no=c.section_no, section_name=c.section_name
-        )
+        if c.section_no == 15:  # one label per FAQ pair (faq_citation_format)
+            q = int(c.chunk_id.rsplit("-q", 1)[1])
+            expected = guardrails["faq_citation_format"].format(
+                product=product, section_no=c.section_no, section_name=c.section_name, q=q
+            )
+        else:
+            expected = fmt.format(product=product, section_no=c.section_no, section_name=c.section_name)
+        assert c.citation_label == expected
     labels = {c.chunk_id: c.citation_label for c in chunks}
     assert labels["health-secure-plus-s5"] == "[Health Secure Plus §5 Maternity]"
     assert labels["all-s13"] == "[All products §13 Human Review]"

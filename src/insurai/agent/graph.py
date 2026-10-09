@@ -279,7 +279,8 @@ def _v7_judge(
         except StructuredOutputError:
             log.warning("V7 judge failed on turn %s; V7 skipped", turn)
             return None
-        trace.extend(llm_events(call, turn, start))
+        if call is not None:  # None: the verbatim pre-check settled every claim
+            trace.extend(llm_events(call, turn, start))
         return verdict
 
     return judge, None

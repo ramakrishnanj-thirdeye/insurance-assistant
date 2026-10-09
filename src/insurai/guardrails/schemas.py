@@ -3,6 +3,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 RefusalCode = Literal[
     "ACCESS_DENIED", "OUT_OF_SCOPE", "INJECTION", "GUARANTEE_REQUEST", "NOT_FOUND", "LOW_CONFIDENCE"
@@ -31,6 +32,8 @@ class GroundedClaim(BaseModel):
     text: str
     supported: bool
     evidence_label: str | None = None
+    # "verbatim": settled by the pre-check (the claim's normalised text is in the evidence), no judge call
+    settled_by: SkipJsonSchema[Literal["judge", "verbatim"]] = "judge"
 
 
 class GroundednessVerdict(BaseModel):

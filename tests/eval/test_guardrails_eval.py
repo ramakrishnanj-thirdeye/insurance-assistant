@@ -16,7 +16,7 @@ from insurai.settings import get_settings
 from insurai.tools.schemas import SourceRef
 
 MANDATED = "Final decision depends on complete claim assessment."
-S15_LABEL = "[All products §15 Training FAQ]"
+S15_LABEL = "[All products §15 Training FAQ Q1]"
 PRECEDENCE = (
     "Your policy schedule governs this policy's numbers; the product wording describes the general terms."
 )
@@ -50,6 +50,10 @@ def test_AC_08_12_judge_rows_judges_only_V7_intents_and_reports_metrics(
     assert v7_metrics(rows) == {
         "v7_judged": 2,
         "v7_pass_rate": 0.5,
+        "faithfulness": 0.3333,  # 1 of 3 claims supported
+        "v7_verbatim_share": 0.0,
+        "v7_claims_total": 3,
+        "v7_verbatim_total": 0,
         "v7_unsupported_total": 2,
         "v7_errors": 0,
     }
@@ -73,7 +77,7 @@ def test_guardrails_items_reuse_EVAL029_EVAL030_and_score_answers() -> None:
         or "guarantee" in items["EVAL030"].tags
     )
     assert not items["EVAL029"].must_refuse and not items["EVAL030"].must_refuse
-    answer = f"I can't promise an outcome. {MANDATED} [All products §15 Training FAQ]"
+    answer = f"I can't promise an outcome. {MANDATED} [All products §15 Training FAQ Q1]"
     assert slice_mod.score(items["EVAL030"], answer) == {
         "refused": False,
         "s15_cited": True,

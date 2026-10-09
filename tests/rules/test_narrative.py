@@ -14,6 +14,7 @@ from insurai.agent.dossier import analyze
 from insurai.rules.engine import evaluate_claim
 from insurai.rules.narrative import (
     complete_narrative,
+    complete_narrative_with_additions,
     narrative_input,
     premise_correction,
     question_mode,
@@ -96,6 +97,20 @@ def test_complete_narrative_leaves_a_complete_text_alone(warehouse_ready: None) 
         + a.next_best_actions
     )
     assert complete_narrative(body, a) == body
+
+
+@pytest.mark.integration
+def test_AC_11_17_guard_reports_what_it_appended(warehouse_ready: None) -> None:
+    complete = _assessment("CLM300101")
+    body = "\n".join(
+        ["Claim CLM300101 is Approved. [claims:CLM300101]"]
+        + [f"- {r.message} [claims:CLM300101]" for r in complete.rules if r.message]
+        + complete.next_best_actions
+    )
+    assert complete_narrative_with_additions(body, complete) == (body, [])
+    control = _assessment("CLM300423")
+    text, added = complete_narrative_with_additions("Nothing stands out. [claims:CLM300423]", control)
+    assert added == ["Claim CLM300423 is Under Review [claims:CLM300423]."] and text.startswith(added[0])
 
 
 @pytest.mark.integration
