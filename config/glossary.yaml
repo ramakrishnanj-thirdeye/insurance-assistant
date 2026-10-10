@@ -51,6 +51,11 @@ routing:
       words: [policy, schedule, status, effective, sum insured, waiting period, co-pay, deductible, date]
   # A claim_status intent in a message with one of these words becomes claim_analysis in explain mode.
   promote_to_analysis: [summary, overview, summarise, summarize, why]
+  # A claim intent with no claim ID, no active claim and none of these references in the message is a question
+  # about the wording (rule 2), not a request to pick a claim. Case-insensitive regular expressions.
+  claim_reference_patterns:
+    - '\b(my|this|that|the|our|his|her|their|same) claims?\b(?!\s+(process|procedure))'
+    - '\bclaim\s+(id|number|no\.?|ref(erence)?)\b'
 
 # Follow-up phrases that resolve to active_entities (spec 06 routing rule 3).
 follow_up_phrases: [it, its, this claim, that claim, the claim, this policy, that policy, the policy, my claim, my policy, same claim]  # whole words, case-insensitive

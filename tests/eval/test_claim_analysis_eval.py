@@ -25,7 +25,7 @@ def _narrator(messages: list[Any]) -> str:
     if "<draft>" in system:
         return re.search(r"<draft>(.*)</draft>", system, re.DOTALL).group(1)  # type: ignore[union-attr]
     data = json.loads(re.search(r"<assessment>(.*)</assessment>", system, re.DOTALL).group(1))  # type: ignore[union-attr]
-    return f"Position. {data['label']}"  # the completeness guard adds every finding and action
+    return f"Position. {data['claim_citation']}"  # the completeness guard adds every finding and action
 
 
 def test_slice_scores_rules_interrupts_mentions_and_judge(
@@ -56,9 +56,12 @@ def test_slice_scores_rules_interrupts_mentions_and_judge(
     assert rows["CA001"]["narrative"]
     targets = {k: v for k, v in get_settings().eval.targets.items() if k.startswith("claim_analysis.")}
     assert m["correctness"] == 1.0 and m["faithfulness"] == 1.0
-    assert m["guard_interventions"] == 1.0  # the scripted narrator leaves every finding to the guard
+    # the scripted narrator leaves every finding to the guard; the control claim (CA010) has none to add,
+    # and the templated opening is presentation, not an intervention
+    assert m["guard_interventions"] == 0.9 and rows["CA010"]["guard_added"] == []
     assert result["counts"]["correctness"] == [m["items"], m["items"]]
-    assert len(targets) == 6 and gate({"claim_analysis": result}, None, targets) == []
+    assert m["orphan_numbers"] == 0.0 and m["orphan_items"] == []  # AC-08-05 on the claim_analysis slice
+    assert len(targets) == 7 and gate({"claim_analysis": result}, None, targets) == []
 
 
 def test_judged_inventions_fail_the_gate(

@@ -76,6 +76,12 @@ Additions decided 2026-10-06:
 - [x] AC-07-07 Narrative for CA001–CA003 mentions every blocker (deterministic check on `labels.must_mention`) and the judge finds zero invented findings. Passed 2026-10-06 on the local profile (generator qwen3:8b, judge llama3.1:8b, ADR-006 amendment); the completeness guard makes the mention part model-independent (scripted-model tests over all 10 items); api-lite skips until an ANTHROPIC_API_KEY exists.
 - [x] AC-07-08 `evaluate_claim` < 300 ms; `make rules` < 30 s. Measured 2026-10-06: warm 80–90 ms (first call ~2.7 s while the ruleset and section names load); `make rules` 0.8 s (3.6 s with process start).
 - [x] AC-07-09 Changing `thresholds.fraud_review_score` in settings changes R10 counts without code changes.
+- [x] AC-07-10 Narrative presentation: the first line is the `narrative_opening` template ("Claim X is <status>;
+  N blockers; needs / doesn't need human review [claims:X]."), never a model sentence about counts, labels or an
+  overall position; the model's own status opener is removed; `narrative_input` carries no counts and no review,
+  gives amounts in rupees, and leaves out an empty next_best_actions list, so no empty next-steps section appears.
+- [x] AC-07-11 The reviewer's decision and note are appended verbatim after the narrative (`review_decision`
+  template), exactly once, never reworded by the model (tests/rules/test_narrative.py, tests/agent/test_dossier.py).
 
 ## Eval hooks
 claim_analysis slice (25): blocker mention recall, invented findings, review-interrupt correctness.

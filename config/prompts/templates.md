@@ -1,6 +1,6 @@
 ---
 id: templates
-version: 0.6.0
+version: 0.7.0
 ---
 ## claim_status
 Claim {claim_id} is **{claim_status}**{approved_clause}. It was filed on {claim_date} for {claim_amount} under {product_name}. {label}
@@ -98,3 +98,18 @@ What claim {claim_id} still needs:
 
 ## conflict_line
 {concept_name}: {schedule_value} {unit} in your policy schedule {schedule_label}; {wording_value} {unit} in the product wording {wording_label}.
+
+## narrative_opening
+Claim {claim_id} is {claim_status}; {blockers}; {review} {label}.
+
+## narrative_blocker_one
+1 blocker
+
+## narrative_blockers
+{n} blockers
+
+## narrative_review_needed
+needs human review
+
+## narrative_review_not_needed
+doesn't need human review

@@ -24,10 +24,10 @@ from insurai.agent.schemas import Evidence, TraceEvent
 from insurai.eval import correctness
 from insurai.eval.groundedness import final_checks, judge_rows, v7_metrics, verifier_pass_rates
 from insurai.eval.retrieval import UNANSWERABLE, any_gold
+from insurai.eval.review import AUTO_APPROVE
 from insurai.eval.stats import count, prop
 from insurai.guardrails.verify import labels_in
 from insurai.observability import get_logger
-from insurai.rules.schemas import ReviewDecision
 from insurai.settings import ROOT
 from insurai.tools.messages import guardrails
 from insurai.tools.schemas import Persona
@@ -36,7 +36,6 @@ log = get_logger(__name__)
 
 DATASETS = ROOT / "eval" / "datasets"
 DRAFT = "draft"
-AUTO_APPROVE = ReviewDecision(action="approve", note="eval auto-approve")
 LOGGED = ("refused", "citation_ok", "error")  # per-item log fields; judge scores are never logged
 
 

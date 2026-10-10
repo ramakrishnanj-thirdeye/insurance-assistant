@@ -171,3 +171,30 @@ def test_AC_08_09_conflict_rendering_scripted_policy_details_only(
     assert "30 days in the product wording [Health Secure Plus §4 Waiting Period]" in answer
     assert PRECEDENCE in answer and result.verification_passed
     assert not any(e.kind == "llm" and e.name == "synthesize" for e in result.trace)
+
+
+def test_AC_08_17_dollar_amount_is_retried_with_the_currency_feedback(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A draft with a "$" amount fails the currency check and is retried with its feedback; the shown answer
+    is in rupees."""
+    question = "Did anyone discuss the 500 on CLM300500 with the customer?"
+    plan = plan_of(("claim_interactions", {"claim_id": "CLM300500"}), question=question)
+    prompts: list[str] = []
+
+    def synth(messages: Any) -> str:
+        prompts.append(str(messages[0].content))
+        amount = "$500" if len(prompts) == 1 else "₹500"
+        return f"No contact mentions the {amount}. [interactions:CLM300500]"
+
+    install(monkeypatch, {"Plan": [plan], "Text": synth})
+    result = run_turn(graph, "t-ac0817", question, "claims_agent")
+    first, last = _verify_events(result)[0], _verify_events(result)[-1]
+    currency = next(c for c in first.data["checks"] if c["check"] == "CURRENCY")
+    assert first.data["outcome"] == "retry" and not currency["passed"] and currency["detail"] == "$500"
+    assert "rupees" in prompts[1] and "$500" in prompts[1]  # the feedback reached the retry
+    assert (
+        last.data["outcome"] == "pass"
+        and "₹500" in result.answer_markdown
+        and "$" not in result.answer_markdown
+    )

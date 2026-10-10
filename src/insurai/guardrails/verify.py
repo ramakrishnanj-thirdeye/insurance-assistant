@@ -1,8 +1,9 @@
-"""Output checks (spec 08 Output layer): deterministic V1–V6 first, then the V7 judge.
+"""Output checks (spec 08 Output layer): deterministic V1–V6 and CURRENCY first, then the V7 judge.
 
 V1 citation validity · V2 citation presence · V3 number provenance · V4 no guarantee · V5 PII leakage ·
-V6 hidden fields (customer persona) · V7 groundedness (LLM judge, injected as `judge` so this module stays
-pure; it runs only when V1–V6 pass, so a draft that will be retried anyway costs no judge call).
+V6 hidden fields (customer persona) · CURRENCY amounts in rupees only · V7 groundedness (LLM judge,
+injected as `judge` so this module stays pure; it runs only when the deterministic checks pass, so a
+draft that will be retried anyway costs no judge call).
 """
 
 import json
@@ -13,6 +14,7 @@ from functools import lru_cache
 from typing import Any
 
 from insurai.agent.schemas import AnswerDraft, Evidence
+from insurai.guardrails.currency import currency_feedback, currency_hits
 from insurai.guardrails.hidden import hidden_hits
 from insurai.guardrails.leakage import name_leaks, pii_leaks
 from insurai.guardrails.numbers import number_tokens
@@ -102,6 +104,18 @@ def rewrite_guarantees(text: str) -> str:
     return "\n".join(lines)
 
 
+def orphan_numbers(
+    answer: str, evidence: list[Evidence], question: str, as_of: date | None = None
+) -> list[str]:
+    """V3: numbers in the answer that are in no evidence payload, summary or label, the question or the as-of
+    date. Masked: an orphan may be a phone or Aadhaar number (V5), never repeated in a trace or feedback."""
+    allowed = evidence_tokens(evidence) | number_tokens(question)
+    if as_of is not None:
+        allowed.add(as_of.isoformat())
+    answer_numbers = number_tokens(_LIST_MARKER.sub("", strip_labels(answer)))
+    return sorted(dict.fromkeys(mask(n)[0] for n in answer_numbers - allowed))
+
+
 def verify(
     draft: AnswerDraft,
     evidence: list[Evidence],
@@ -122,18 +136,14 @@ def verify(
     has_results = any(ev.kind not in NO_RESULT_KINDS for ev in evidence)
     v2_ok = not has_results or bool(used)
 
-    allowed_numbers = evidence_tokens(evidence) | number_tokens(question)
-    if as_of is not None:
-        allowed_numbers.add(as_of.isoformat())
-    answer_numbers = number_tokens(_LIST_MARKER.sub("", strip_labels(answer)))
-    # Masked: an orphan may be a phone or Aadhaar number (V5), never repeated in the trace or the feedback.
-    orphans = sorted(dict.fromkeys(mask(n)[0] for n in answer_numbers - allowed_numbers))
+    orphans = orphan_numbers(answer, evidence, question, as_of)
 
     hits = guarantee_hits(answer)
     pii = pii_leaks(answer, evidence)
     names = name_leaks(answer, evidence, persona)
     v5_detail = ", ".join([*pii, *([f"{names} customer name(s)"] if names else [])])
     revealed = hidden_hits(answer, hidden) if persona == "customer" else []
+    foreign = currency_hits(answer)
     checks = [
         CheckOutcome(check="V1", passed=not invalid, detail=", ".join(invalid)),
         CheckOutcome(check="V2", passed=v2_ok, detail="" if v2_ok else "factual answer without citations"),
@@ -141,6 +151,7 @@ def verify(
         CheckOutcome(check="V4", passed=not hits, detail=", ".join(hits)),
         CheckOutcome(check="V5", passed=not v5_detail, detail=v5_detail),
         CheckOutcome(check="V6", passed=not revealed, detail=", ".join(revealed)),
+        CheckOutcome(check="CURRENCY", passed=not foreign, detail=", ".join(foreign)),
     ]
     feedback = []
     if pseudo:
@@ -168,6 +179,8 @@ def verify(
             "This is a customer: never mention fraud scores, manual review flags or risk segments, "
             "or their values."
         )
+    if foreign:
+        feedback.append(f"{currency_feedback()} Found: {', '.join(foreign)}.")
 
     unsupported: list[str] = []
     if judge is not None and all(c.passed for c in checks):

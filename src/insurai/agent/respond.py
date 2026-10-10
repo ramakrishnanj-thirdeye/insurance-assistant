@@ -8,7 +8,10 @@ from insurai.agent.prompts import template
 from insurai.agent.schemas import NO_WORKER, Entities, Evidence, TraceEvent
 from insurai.agent.state import AgentState
 from insurai.agent.trace import now_ms
+from insurai.guardrails.fixed import mandated_once
 from insurai.guardrails.verify import NO_RESULT_KINDS
+from insurai.rules.narrative import review_line
+from insurai.textblocks import append_once
 from insurai.tools.messages import refusal
 
 ENTITY_FROM_PAYLOAD = {
@@ -99,12 +102,16 @@ def final_text(state: AgentState) -> str:
         elif types <= NO_WORKER:
             parts.append(template("greeting"))
     if decision := state.get("review"):
-        parts.append(template("review_decision", action=decision.action, note=decision.note or "(none)"))
+        parts.append(review_line(decision))
     assessment = state.get("assessment")
     if assessment is not None and assessment.needs_human_review and state.get("persona") == "customer":
         parts.append(template("specialist_review_customer"))
     parts.extend(state.get("notes") or [])
-    return "\n\n".join(p for p in parts if p)
+    # Idempotent: a block the answer already carries (the narrative's review line) is not appended again.
+    text = ""
+    for part in parts:
+        text = append_once(text, part)
+    return mandated_once(text)
 
 
 def next_active_entities(state: AgentState) -> Entities:

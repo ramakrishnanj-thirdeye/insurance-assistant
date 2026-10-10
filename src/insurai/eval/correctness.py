@@ -9,7 +9,7 @@ until the human scores are in, eval/calibration.py).
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from insurai.agent.prompts import load_prompt
 from insurai.eval.stats import prop
@@ -23,8 +23,16 @@ JUDGE_INSTRUCTION = "Score the answer."
 
 
 class CorrectnessScore(BaseModel):
+    """A score with a non-empty reason: an empty or blank reason fails validation, so `structured_call`
+    retries once with the error as feedback; a second failure is recorded as judge_error (never scored)."""
+
     score: int = Field(ge=1, le=5)
-    reason: str = ""
+    reason: str = Field(min_length=1)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _strip(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 def judge_correctness(question: str, gold: str, answer: str) -> CorrectnessScore:
@@ -58,6 +66,7 @@ def judge_rows(
 
 
 def correctness_metrics(rows: list[dict[str, Any]], counts: dict[str, list[int]]) -> dict[str, Any]:
+    """Correctness over judged rows only; rows with a judge_error are excluded and counted separately."""
     scored = [r for r in rows if isinstance(r.get("judge_score"), int)]
     out: dict[str, Any] = {}
     prop(out, counts, "correctness", sum(r["judge_score"] >= CORRECT_MIN for r in scored), len(scored))

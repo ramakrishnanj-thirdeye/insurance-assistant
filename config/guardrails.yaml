@@ -80,6 +80,16 @@ conflict_rendering:               # spec 08 Conflict rendering; deterministic co
 v7:                              # spec 08 V7 groundedness
   verbatim_min_words: 4           # a claim this long whose normalised text is verbatim in the evidence is supported without a judge call
 
+currency:                         # spec 08 currency check: every amount is in rupees (₹, Indian grouping); a hit fails and retries
+  forbidden_patterns:             # case-insensitive regexes over the answer with citation labels removed
+    - '(?<!\w)(?:US)?\$\s?\d[\d,]*(?:\.\d+)?'
+    - '\d[\d,.]*\s?\$'
+    - '\b(?:USD|EUR|GBP|AUD|CAD|SGD|AED)\b'
+    - '[€£¥]\s?(?:\d[\d,]*(?:\.\d+)?)?'
+    - '\b(?:dollars?|euros?|pounds? sterling)\b'
+    - '\b(?:Rs\.?|INR)\s?\d[\d,]*(?:\.\d+)?'
+  feedback: "Write every amount in rupees with the ₹ sign and Indian digit grouping (for example ₹56,714), copied from the evidence; never $, Rs, INR or another currency."
+
 citation_format: '[{product} §{section_no} {section_name}]'      # e.g. [Health Secure Plus §5 Maternity]
 faq_citation_format: '[{product} §{section_no} {section_name} Q{q}]'  # one §15 FAQ pair, e.g. [All products §15 Training FAQ Q2]
 sql_citation_format: '[{table}:{key}]'                          # e.g. [claims:CLM300210]

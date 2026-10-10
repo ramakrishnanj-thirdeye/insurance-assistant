@@ -7,8 +7,10 @@ correctness judge: policy_clauses_e2e, comparisons and adversarial; then the sui
 the judge calibration (eval/calibration.py, built on the first full run).
 
 Every run writes eval/reports/<suite>_<ts>.json and .md. The gate (insurai.eval.baseline) compares target
-metrics with eval/reports/baseline.json; `--gate` exits 1 on a failure. `--sample N` runs a seeded N-item
-subset of the routing slice (development smoke).
+metrics with eval/reports/baseline.json; `--gate` exits 1 on a failure. While the judge is uncalibrated
+(eval/calibration.py) the judge-based metrics are advisory, not gated. `--slice` may be repeated to run
+several slices into one report. `--sample N` runs a seeded N-item subset of the routing slice
+(development smoke).
 """
 
 import argparse
@@ -28,7 +30,7 @@ from insurai.eval import (
     routing,
     sql_facts,
 )
-from insurai.eval.baseline import gate, load_baseline, open_gates
+from insurai.eval.baseline import advisory_keys, gate, load_baseline, open_gates
 from insurai.eval.counts import derive_counts
 from insurai.eval.retrieval import (
     CONFIGS,
@@ -92,7 +94,7 @@ def coverage_status() -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="insurai.eval.run")
     parser.add_argument("--suite", choices=["fast", "full", "ablation"], required=True)
-    parser.add_argument("--slice", dest="slice_name", choices=sorted(ALL_SLICES))
+    parser.add_argument("--slice", dest="slice_names", action="append", choices=sorted(ALL_SLICES))
     parser.add_argument("--gate", action="store_true", help="exit 1 when the gate fails")
     parser.add_argument("--sample", type=int, help="routing only: score a seeded subset of N items")
     args = parser.parse_args(argv)
@@ -100,8 +102,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.suite == "ablation":
         run_ablation(load_policy_slice())
         return 0
-    if args.slice_name:
-        names = [args.slice_name]
+    if args.slice_names:
+        names = list(dict.fromkeys(args.slice_names))
     else:
         names = list(SLICES) if args.suite == "fast" else list(ALL_SLICES)
 
@@ -115,20 +117,26 @@ def main(argv: list[str] | None = None) -> int:
         result["counts"] = derive_counts(name, result)
 
     cal_state: dict[str, Any] = {}
-    if args.suite == "full" and not args.slice_name:
+    if args.suite == "full" and not args.slice_names:
         calibration.build(results)
         calibration.judge_part_a()
         cal_state = calibration.status()
     calibration.seal(results)  # per-item judge scores of calibration items stay hidden until scored
 
-    targets = get_settings().eval.targets
-    failures = gate(results, load_baseline(), targets)
+    cal_state = cal_state or calibration.status()
+    settings = get_settings().eval
+    targets = settings.targets
+    advisory = advisory_keys(
+        targets, settings.advisory_when_uncalibrated, calibration.is_calibrated(cal_state)
+    )
+    failures = gate(results, load_baseline(), targets, advisory)
     write_report(
-        f"slice-{args.slice_name}" if args.slice_name else args.suite,  # never mistaken for a full run
+        f"slice-{'+'.join(names)}" if args.slice_names else args.suite,  # never mistaken for a full run
         {
             "coverage_status": coverage_status(),
-            "calibration": cal_state or calibration.status(),
-            "open_gates": open_gates(results, targets),
+            "calibration": cal_state,
+            "advisory": sorted(advisory),
+            "open_gates": open_gates(results, targets, advisory),
             "gate": failures,
             "slices": results,
         },

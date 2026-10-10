@@ -11,7 +11,7 @@ human review, persona ≠ customer) → narrate (LLM, assessment JSON only, comp
 import json
 from typing import Annotated, Any, TypedDict
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -23,6 +23,8 @@ from insurai.agent.schemas import Evidence, Intent, TraceEvent
 from insurai.agent.state import WorkerInput, merge_evidence, merge_trace
 from insurai.agent.trace import event, instant, llm_events, now_ms
 from insurai.agent.workers import Recorder, retrieval_event, tool_context
+from insurai.guardrails.currency import currency_feedback, currency_hits
+from insurai.guardrails.fixed import strip_untriggered
 from insurai.guardrails.verify import guarantee_hits, number_tokens, rewrite_guarantees
 from insurai.llm.structured import text_call
 from insurai.observability import get_logger
@@ -271,16 +273,26 @@ def narrate_text(
     assessment: ClaimAssessment, correction: str | None, question: str, config: RunnableConfig | None
 ) -> tuple[str, Any, list[str]]:
     """The LLM narrative with promises rewritten and the completeness guard applied, with what the guard
-    added; the deterministic rendering (nothing added) when the model returns nothing."""
+    added; the deterministic rendering (nothing added) when the model returns nothing or still writes a
+    non-rupee amount after one retry with the currency feedback (spec 08 currency check)."""
     prompt = load_prompt("dossier_narrative")
     system = prompt.render(
         view=assessment.view,
         question=question,
         assessment_json=json.dumps(narrative_input(assessment, correction), ensure_ascii=False, default=str),
     )
-    messages = [SystemMessage(system), HumanMessage(NARRATE_INSTRUCTION)]
+    messages: list[BaseMessage] = [SystemMessage(system), HumanMessage(NARRATE_INSTRUCTION)]
     text, call = text_call("generator", messages, prompt.id, prompt.version, config)
-    text = rewrite_guarantees(text).strip()
+    if text and (foreign := currency_hits(text)):
+        feedback = f"{currency_feedback()} Found: {', '.join(foreign)}. Write the narrative again."
+        retry = [*messages, AIMessage(text), HumanMessage(feedback)]
+        text, call = text_call("generator", retry, prompt.id, prompt.version, config)
+        if text and currency_hits(text):
+            return render_assessment(assessment, correction), call, []
+    rewritten = rewrite_guarantees(text).strip()
+    # The precedence sentence comes from `complete` (a real conflict only); the mandated wording stays only
+    # where a V4 rewrite put it.
+    text = strip_untriggered(rewritten, conflict=False, mandated_allowed=rewritten != text.strip())
     if not text:
         return render_assessment(assessment, correction), call, []
     completed, added = complete_narrative_with_additions(text, assessment, correction)

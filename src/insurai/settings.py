@@ -128,6 +128,8 @@ class TracingSettings(_Section):
 class EvalSettings(_Section):
     # "slice.metric" -> minimum, or {max: x} for a metric where lower is better (suite.false_refusal)
     targets: dict[str, float | dict[str, float]] = Field(default_factory=dict)
+    # metric names (any slice) that are reported but not gated while the judge is uncalibrated
+    advisory_when_uncalibrated: list[str] = Field(default_factory=list)
 
 
 class LoggingSettings(_Section):

@@ -19,11 +19,13 @@ from insurai.agent.prompts import load_prompt, template
 from insurai.agent.schemas import ALL_ROWS, AnswerDraft, Evidence, Plan
 from insurai.agent.state import AgentState
 from insurai.agent.trace import llm_events, now_ms
-from insurai.guardrails.conflicts import ensure_conflicts_rendered
+from insurai.guardrails.conflicts import ensure_conflicts_rendered, find_conflicts
+from insurai.guardrails.fixed import strip_untriggered
 from insurai.guardrails.verify import NO_RESULT_KINDS, labels_in
 from insurai.llm.structured import text_call
 from insurai.rules.narrative import premise_correction
 from insurai.settings import get_settings
+from insurai.textblocks import dedupe_paragraphs
 from insurai.tools.messages import refusal
 
 
@@ -42,6 +44,7 @@ def synthesize(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     if not text:
         return {"draft": complete(state, abstain_draft(evidence), evidence), "trace": trace}
     text = with_premise_correction(text, state.get("plan"), evidence, question)
+    text = dedupe_paragraphs(clean_fixed_sentences(state, text, evidence))
     draft = AnswerDraft(answer_markdown=text, citations=labels_in(text), llm_written=True)
     return {"draft": complete(state, draft, evidence), "trace": trace}
 
@@ -54,6 +57,17 @@ def complete(state: AgentState, draft: AnswerDraft, evidence: list[Evidence]) ->
     if guard is not None and guard.guarantee_request:
         draft = ensure_guarantee_answer(draft, evidence, guarantee_claim(state.get("plan")))
     return draft
+
+
+def clean_fixed_sentences(state: AgentState, text: str, evidence: list[Evidence]) -> str:
+    """Model-written copies of the precedence sentence (no conflict) and the mandated wording (no guarantee
+    request) removed; the completions in `complete` and a V4 rewrite in verify add them back when due."""
+    guard = state.get("guard")
+    return strip_untriggered(
+        text,
+        conflict=bool(find_conflicts(evidence)),
+        mandated_allowed=guard is not None and guard.guarantee_request,
+    )
 
 
 def guarantee_claim(plan: Plan | None) -> str | None:
@@ -125,6 +139,8 @@ def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDr
         )
     if evidence and all(_unanswered_unfiltered(ev) for ev in evidence):
         return abstain_draft(evidence)  # routing rule 2: no product and no confident clause anywhere
+    if no_confident_clause(state.get("plan"), evidence):
+        return abstain_draft(evidence)  # confidence gate: never a model-written verdict on weak evidence
     if not state.get("attempts"):  # a verify retry goes to the generator with the feedback
         return template_draft(state.get("plan"), evidence, last_question(state))
     return None
@@ -154,6 +170,17 @@ def _unanswered_unfiltered(ev: Evidence) -> bool:
         and ev.payload.get("unfiltered")
         and not ev.payload.get("confident")
         and not ev.payload.get("pinned")  # a guarantee turn's §14/§15 answer it (spec 08)
+    )
+
+
+def no_confident_clause(plan: Plan | None, evidence: list[Evidence]) -> bool:
+    """Confidence gate (spec 06): a turn whose intents are all policy_question, where no retrieved clause is
+    confident or pinned, filtered by product or not. The abstention template answers it, not the model."""
+    if plan is None or not plan.intents or any(i.type != "policy_question" for i in plan.intents):
+        return False
+    clauses = [ev for ev in evidence if ev.kind == "RetrievalResult"]
+    return bool(clauses) and not any(
+        ev.payload.get("confident") or ev.payload.get("pinned") for ev in clauses
     )
 
 

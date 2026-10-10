@@ -14,7 +14,9 @@ With the LLM (the dossier subgraph on an InMemorySaver, auto-approving a review)
 - correctness: the judge (judge_correctness.md, score >= 4) against a gold answer built from the signed-off
   labels (`gold_from_labels`; the dataset has no prose gold);
 - guard_interventions (reported, not gated): the share of narratives where the completeness guard had to
-  append something (the dossier's narrative_guard trace event).
+  append something (the dossier's narrative_guard trace event);
+- orphan_numbers (AC-08-05): the share of narratives failing V3, numbers in no evidence, the question or
+  the reviewer's note (target 0).
 """
 
 import json
@@ -32,13 +34,15 @@ from insurai.agent.prompts import load_prompt
 from insurai.agent.schemas import Entities, Evidence, Intent
 from insurai.eval import correctness
 from insurai.eval.groundedness import judge_rows, v7_metrics
+from insurai.eval.review import AUTO_APPROVE
 from insurai.eval.stats import count, prop
+from insurai.guardrails.verify import orphan_numbers
 from insurai.llm.structured import structured_call
 from insurai.observability import get_logger
 from insurai.rules.engine import evaluate_claim
 from insurai.rules.narrative import narrative_input, premise_correction, question_mode
-from insurai.rules.schemas import ClaimAssessment, ReviewDecision
-from insurai.settings import ROOT
+from insurai.rules.schemas import ClaimAssessment
+from insurai.settings import ROOT, get_settings
 from insurai.tools.schemas import Persona
 
 log = get_logger(__name__)
@@ -46,7 +50,6 @@ log = get_logger(__name__)
 SLICE = "claim_analysis"
 DATASETS = ROOT / "eval" / "datasets"
 SOURCES = ("claim_analysis_seed.jsonl", "claim_analysis.jsonl")
-AUTO_APPROVE = ReviewDecision(action="approve", note="eval auto-approve")
 JUDGE_INSTRUCTION = "Check the narrative."
 
 
@@ -192,6 +195,10 @@ def run_slice(with_llm: bool = True) -> dict[str, Any]:
                     status = final.facts.get("claim_status")
                     correction = premise_correction(item.question, final.claim_id, status)
                     evidence[item.id] = [assessment_evidence(final, correction, "i1")]
+                    note = f"\n{AUTO_APPROVE.note}" if paused else ""  # numbers the reviewer wrote
+                    row["orphan_numbers"] = orphan_numbers(
+                        narrative, evidence[item.id], item.question + note, get_settings().as_of_date
+                    )
                 row |= {
                     "review_interrupt": paused == expected_interrupt(item),
                     "blocker_mention": round(
@@ -273,6 +280,9 @@ def metrics(
             **v7_metrics(rows, counts),
             **correctness.correctness_metrics(rows, counts),
         }
+        v3 = [r for r in rows if "orphan_numbers" in r]
+        prop(out, counts, "orphan_numbers", *count(bool(r["orphan_numbers"]) for r in v3))
+        out["orphan_items"] = [r["id"] for r in v3 if r["orphan_numbers"]]
         guarded = [r for r in rows if r.get("guard_added") is not None]
         prop(out, counts, "guard_interventions", *count(bool(r["guard_added"]) for r in guarded))
     out["wrong"] = [

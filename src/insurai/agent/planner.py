@@ -16,7 +16,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from insurai.agent import guarantee, routing
 from insurai.agent.prompts import load_prompt, template
-from insurai.agent.resolve import canonical_product, product_names
+from insurai.agent.resolve import canonical_product, has_claim_reference, match_product, product_names
 from insurai.agent.schemas import NO_WORKER, Entities, Intent, Plan
 from insurai.rules.narrative import question_mode
 from insurai.tools.schemas import Persona
@@ -83,15 +83,16 @@ def finalize_plan(plan: Plan, ctx: PlanContext) -> Plan:
             intent.type == "policy_details" and entities.policy_id is None and entities.claim_id is None
         )
         if needs_claim or needs_policy:
-            product = canonical_product(intent.entities.product) or ctx.resolved.product
-            if product is None and needs_claim:
+            product = entities.product or ctx.resolved.product
+            if product is None and needs_claim and has_claim_reference(ctx.message):
                 claims = ctx.own_claims()
                 return Plan(
                     clarification=template("clarification_claim", claim_list=", ".join(claims)).strip()
                 )
-            if product is None:
+            if product is None and needs_policy:
                 return Plan(clarification=template("clarification_policy"))
-            # No claim or policy anywhere but a product named: a question about the wording (spec 06 rule 2).
+            # No claim or policy anywhere and none referred to: a question about the wording (spec 06 rule 2),
+            # with the product named, or resolved below by rule 2 when none is.
             if any(i.type == "policy_question" for i in out):
                 continue
             intent = intent.model_copy(update={"type": "policy_question"})
@@ -130,7 +131,7 @@ def _fill(intent: Intent, ctx: PlanContext) -> Entities:
         value = getattr(e, id_field)
         if value is not None and value not in known_ids and value not in ctx.message:
             e = e.model_copy(update={id_field: None})  # an invented ID; never trust it
-    e = e.model_copy(update={"product": canonical_product(e.product)})
+    e = e.model_copy(update={"product": _trusted_product(e.product, ctx)})
     if intent.type in NO_WORKER or intent.type in ("analytics", "coverage_compare"):
         return e
     fill: dict[str, str | None] = {}
@@ -148,6 +149,22 @@ def _fill(intent: Intent, ctx: PlanContext) -> Entities:
     if intent.type == "policy_question":
         fill["product"] = e.product or ctx.resolved.product
     return e.model_copy(update={k: v for k, v in fill.items() if v is not None})
+
+
+def _trusted_product(name: str | None, ctx: PlanContext) -> str | None:
+    """The planner's product only when the message names it (gazetteer) or the context carries it (the active
+    product, or the product behind a claim or policy in the message or context); an invented product is
+    dropped, so rule 2 treats the question as product-less."""
+    product = canonical_product(name)
+    if product is None:
+        return None
+    if product in (match_product(ctx.message), ctx.resolved.product, ctx.active.product):
+        return product
+    for source in (ctx.resolved, ctx.active):
+        ids = Entities(claim_id=source.claim_id, policy_id=source.policy_id)
+        if (ids.claim_id or ids.policy_id) and ctx.product_of(ids) == product:
+            return product
+    return None
 
 
 def _resolve_product(intent: Intent, e: Entities, ctx: PlanContext) -> tuple[str | None, str | None]:

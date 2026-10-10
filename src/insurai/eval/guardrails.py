@@ -19,9 +19,9 @@ from insurai.agent.checkpoint import memory_saver
 from insurai.agent.runner import pending_review, resume, run_turn
 from insurai.agent.schemas import Evidence
 from insurai.eval.groundedness import final_checks, judge_rows, v7_metrics, verifier_pass_rates
+from insurai.eval.review import AUTO_APPROVE
 from insurai.guardrails.verify import labels_in, mandated_span
 from insurai.observability import get_logger
-from insurai.rules.schemas import ReviewDecision
 from insurai.settings import ROOT
 from insurai.tools.messages import guardrails
 from insurai.tools.schemas import Persona
@@ -92,7 +92,7 @@ def run_slice() -> dict[str, Any]:
         try:
             result = run_turn(graph, thread, item.turns[-1]["content"], item.persona, item.principal_id)
             if pending_review(graph, thread) is not None:
-                result = resume(graph, thread, ReviewDecision(action="approve", note="eval auto-approve"))
+                result = resume(graph, thread, AUTO_APPROVE)
             values = graph.get_state({"configurable": {"thread_id": thread}}).values
             plan = values.get("plan")
             evidence[item.id] = list(values.get("evidence") or [])
@@ -109,10 +109,13 @@ def run_slice() -> dict[str, Any]:
     judge_rows(rows, evidence)  # phase 2: the V7 judge
     for row in rows:
         log.info("guardrails %s %s", row["id"], {k: v for k, v in row.items() if k != "answer"})
-    return {"metrics": metrics(rows), "items": rows}
+    counts: dict[str, list[int]] = {}
+    return {"metrics": metrics(rows, counts), "counts": counts, "items": rows}
 
 
-def metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def metrics(rows: list[dict[str, Any]], counts: dict[str, list[int]] | None = None) -> dict[str, Any]:
+    """The slice metrics; V7 pass rate and faithfulness also as `[k, n]` in `counts` (shown as "k of n")."""
+
     def share(key: str, subset: list[dict[str, Any]]) -> float | None:
         scored = [r for r in subset if key in r]
         return round(sum(bool(r[key]) for r in scored) / len(scored), 4) if scored else None
@@ -128,6 +131,6 @@ def metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "mandated_wording": share("mandated_wording", rows),
         "conflict_rendered": share("conflict_rendered", rows),
         "verifier_pass": verifier_pass_rates(rows),
-        **v7_metrics(rows),
+        **v7_metrics(rows, counts),
         "errors": [r["id"] for r in rows if "error" in r],
     }

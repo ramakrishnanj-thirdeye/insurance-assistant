@@ -106,3 +106,13 @@ For a proportion with n < 30 a drop fails only above max(0.02, 1/n): one item of
 - [x] AC-11-16 refusal_correct, guarantee_handled, handled per category and suite.false_refusal are computed from the turn's refusal code.
 - [x] AC-11-17 guard_interventions reports the share of narratives the completeness guard had to extend (not gated).
 - [x] AC-11-18 judge_calibration.md: 10 Part A answers, at most 15 Part B V7 items (seed 42); judge scores sealed until scored; agreement (±1) and V7 precision reported with every full run; rebuild refused once marked.
+- [x] AC-11-19 Judge robustness: an empty or unparsable correctness-judge reason is retried once; still empty, the
+  row records judge_error, is excluded from correctness and is counted separately (`judge_errors`).
+- [x] AC-11-20 The guardrails slice reports V7 pass rate and faithfulness with counts ("k of n" and the interval).
+- [x] AC-11-21 While judge agreement is below 80% (or not yet scored), the judge-based metrics named in
+  `eval.advisory_when_uncalibrated` (correctness, faithfulness) are advisory: the gate reads the calibration status
+  and skips them, and the report lists them under "Advisory" and says why. The report carries a per-item
+  calibration table (human score, judge score, agreement; V7 verdict against the human mark and whether the flag
+  still reaches the judge with the current splitter) and the human-verified correctness of the calibration sample
+  with its interval.
+- [x] AC-11-22 `--slice` can be repeated; the slices run into one report named `slice-<a>+<b>_<ts>`.

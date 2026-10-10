@@ -10,11 +10,15 @@ and markdown) to eval/reports/baseline.json and baseline.md; draft items stay fl
 The tolerance is 2 points (0.02), widened to one item (1/n) for a proportion with n < 30: on a 15-item
 slice one item is 6.7 points, so a single flip is tolerated as noise but two are not. A target is a minimum
 (a number) or `{max: x}` (false_refusal), where a rise is the regression.
+
+Advisory targets (`advisory_keys`): while the judge is uncalibrated, the judge-based metrics named in
+`eval.advisory_when_uncalibrated` are reported but neither gate nor count as open gates.
 """
 
 import argparse
 import json
 import shutil
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -61,12 +65,25 @@ def metric_of(results: dict[str, Any], key: str) -> tuple[float | None, int | No
     return float(value), (int(counts[1]) if counts else None)
 
 
-def gate(results: dict[str, Any], baseline: dict[str, Any] | None, targets: dict[str, Target]) -> list[str]:
-    """Failures (one line each) for target metrics in `results` against `baseline` slices."""
+def advisory_keys(targets: dict[str, Target], metrics: Collection[str], calibrated: bool) -> set[str]:
+    """Target keys (`slice.metric`) that are advisory: the named metrics, in any slice, while uncalibrated."""
+    if calibrated:
+        return set()
+    return {key for key in targets if key.split(".", 1)[1] in set(metrics)}
+
+
+def gate(
+    results: dict[str, Any],
+    baseline: dict[str, Any] | None,
+    targets: dict[str, Target],
+    advisory: Collection[str] = (),
+) -> list[str]:
+    """Failures (one line each) for target metrics in `results` against `baseline` slices; advisory keys are
+    skipped."""
     failures = []
     for key, target in targets.items():
         value, n = metric_of(results, key)
-        if value is None:
+        if value is None or key in advisory:
             continue
         kind, bound = target_bound(target)
         base, _ = metric_of(baseline or {}, key)
@@ -83,8 +100,11 @@ def gate(results: dict[str, Any], baseline: dict[str, Any] | None, targets: dict
     return failures
 
 
-def open_gates(results: dict[str, Any], targets: dict[str, Target]) -> list[dict[str, Any]]:
-    """Every target the run does not meet, whether or not the baseline met it (the report's Open gates)."""
+def open_gates(
+    results: dict[str, Any], targets: dict[str, Target], advisory: Collection[str] = ()
+) -> list[dict[str, Any]]:
+    """Every target the run does not meet, whether or not the baseline met it (the report's Open gates); an
+    advisory target is listed with `advisory: true` and is not an open gate."""
     out = []
     for key, target in targets.items():
         value, _ = metric_of(results, key)
@@ -93,7 +113,8 @@ def open_gates(results: dict[str, Any], targets: dict[str, Target]) -> list[dict
         slice_name, metric = key.split(".", 1)
         kind, bound = target_bound(target)
         counts = results[slice_name].get("counts", {}).get(metric)
-        out.append({"metric": key, "value": value, "target": f"{kind} {bound}", "counts": counts})
+        entry = {"metric": key, "value": value, "target": f"{kind} {bound}", "counts": counts}
+        out.append(entry | ({"advisory": True} if key in advisory else {}))
     return out
 
 

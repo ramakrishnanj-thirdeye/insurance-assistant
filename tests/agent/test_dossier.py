@@ -47,23 +47,18 @@ def _assessment_json(messages: list[Any]) -> dict[str, Any]:
 
 
 def faithful_narrative(messages: list[Any]) -> str:
-    """A model that follows dossier_narrative.md: correction, position, every finding, the actions."""
+    """A model that follows dossier_narrative.md: correction, every finding, the actions (the opening and the
+    reviewer's line are added by the system)."""
     data = _assessment_json(messages)
     lines = [data["premise_correction"]] if data.get("premise_correction") else []
-    if review := data.get("review"):
-        lines.append(f"The reviewer chose {review['action']}: {review['note']}")
-    n = data["counts"]
-    lines.append(
-        f"This claim has {n['findings']} findings, {n['blockers']} of them blockers. {data['label']}"
-    )
     lines += [f"- {f['message']} {f['citation']}" for f in data["findings"]]
-    lines += [f"{k}. {a}" for k, a in enumerate(data["next_best_actions"], start=1)]
+    lines += [f"{k}. {a}" for k, a in enumerate(data.get("next_best_actions", []), start=1)]
     return "\n".join(lines)
 
 
 def lazy_narrative(messages: list[Any]) -> str:
     """A model that ignores the instructions: one cited sentence, no findings."""
-    return f"Here is the claim. {_assessment_json(messages)['label']}"
+    return f"Here is the claim. {_assessment_json(messages)['claim_citation']}"
 
 
 def text_script(narrative: Responder, synth: Responder = citing_synth) -> Responder:
@@ -96,8 +91,8 @@ def test_assess_mode_interrupts_then_narrates_with_decision(
     assert summary["blockers"] and summary["next_best_actions"] and summary["counts"]["blockers"] == 2
     note = "Goodwill payment of ₹7,777 agreed"  # a number only the reviewer's note carries (V3 source)
     done = resume(graph, "t-assess", ReviewDecision(action="override", note=note))
-    assert done.verification_passed is True and "The reviewer chose override: " + note in done.answer_markdown
-    assert "Reviewer decision: **override**" in done.answer_markdown
+    line = f"Reviewer decision: **override**. Reviewer note: {note}"  # verbatim, never reworded
+    assert done.verification_passed is True and done.answer_markdown.count(line) == 1  # AC-07-11
     assert (
         done.assessment and done.assessment["narrative"] and done.assessment["review"]["action"] == "override"
     )
@@ -192,7 +187,7 @@ def test_failed_verification_falls_back_to_rendered_assessment(
     _install(monkeypatch, narrative=lambda m: invents(m) + "\n" + faithful_narrative(m), synth=invents)
     result = run_turn(graph, "t-fallback", SUMMARY_Q, AGENT)
     assert "policy documents" not in result.answer_markdown.lower()
-    assert result.answer_markdown.startswith("Claim CLM300210 is Approved; the assessment found")
+    assert result.answer_markdown.startswith("Claim CLM300210 is Approved; 2 blockers; needs human review")
     assert "Next steps:" in result.answer_markdown and "12,34,567" not in result.answer_markdown
     events = [e for e in result.trace if e.kind == "verify"]
     assert [e.data["outcome"] for e in events] == ["retry", "abstain"]
@@ -216,7 +211,7 @@ async def test_claim_analysis_turn_streams_narrative_tokens(
     events = await _collect(graph, "t-stream", SUMMARY_Q)
     final = events[-1][1]
     streamed = _tokens(events)
-    assert streamed and final.answer_markdown.startswith(streamed.strip()[:40])
+    assert streamed and streamed.strip()[:40] in final.answer_markdown  # after the templated opening
     assert {d["attempt"] for n, d in events if n == "token"} == {1}
 
 
@@ -245,3 +240,39 @@ async def test_mixed_turn_does_not_stream_the_narrative(
     _install(monkeypatch, narrative=lambda m: "NARRATIVE-ONLY " + faithful_narrative(m))
     events = await _collect(graph, "t-stream-mixed", MIXED_Q.replace("Analyze claim", "Summarise claim"))
     assert "NARRATIVE-ONLY" not in _tokens(events)
+
+
+# --- AC-08-17 currency in the narrative --------------------------------------------------------------------
+
+
+def _dollar_then(narrative: Responder, retries: list[int], always: bool = False) -> Responder:
+    """A narrator that writes a "$" amount first, and again on the retry when `always`."""
+
+    def reply(messages: list[Any]) -> str:
+        retry = any("rupees" in str(m.content) for m in messages[1:])
+        retries.append(int(retry))
+        if retry and not always:
+            return narrative(messages)
+        return "The approved amount is $64,577. [claims:CLM300210]\n" + narrative(messages)
+
+    return reply
+
+
+def test_AC_08_17_narrative_with_dollars_is_retried_once_with_the_feedback(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    _install(monkeypatch, narrative=_dollar_then(faithful_narrative, calls))
+    result = run_turn(graph, "t-usd", SUMMARY_Q, AGENT)
+    assert calls == [0, 1] and "$" not in result.answer_markdown
+    assert result.answer_markdown.startswith("Claim CLM300210 is Approved; 2 blockers; needs human review")
+
+
+def test_AC_08_17_narrative_still_in_dollars_falls_back_to_the_rendering(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    _install(monkeypatch, narrative=_dollar_then(faithful_narrative, calls, always=True))
+    result = run_turn(graph, "t-usd2", SUMMARY_Q, AGENT)
+    assert calls == [0, 1] and "$" not in result.answer_markdown
+    assert "Next steps:" in result.answer_markdown  # render_assessment, not the model's text

@@ -34,6 +34,15 @@ _LINE_MARKER = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 _MARKDOWN = re.compile(r"[*_`#>]+")
 _TRAILING = " .:;,!?"
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+([.,;:!?])")
+_TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+_HEADING_LINE = re.compile(r"^\s*[^|\n]{1,60}:\s*$")  # "Also noted:", "Next steps:"
+_REVIEW_LINE = re.compile(r"^\s*Reviewer decision:\s", re.IGNORECASE)  # templates.md review_decision
+
+
+def _is_table_header(lines: list[str], k: int) -> bool:
+    """A table row directly followed by a separator row."""
+    nxt = next((ln for ln in lines[k + 1 :] if ln.strip()), "")
+    return lines[k].lstrip().startswith("|") and bool(_TABLE_SEPARATOR.match(nxt))
 
 
 def normalise(text: str) -> str:
@@ -42,17 +51,45 @@ def normalise(text: str) -> str:
     return " ".join(plain.split()).strip(_TRAILING)
 
 
-def atomic_claims(answer: str) -> list[str]:
-    """The answer's sentences and bullet lines (labels and list markers removed), fixed sentences dropped."""
-    fixed = {normalise(part) for s in fixed_sentences() for part in [s, *_SENTENCE_END.split(s)]}
+def claim_key(text: str) -> str:
+    """`normalise` with table pipes tightened, so "| A | B |" and "A | B" compare equal."""
+    return re.sub(r"\s*\|\s*", "|", normalise(text)).strip("|")
+
+
+def _split(answer: str) -> tuple[list[str], set[str]]:
+    """(claims, keys of the lines and sentences that are not claims)."""
+    fixed = {claim_key(part) for s in fixed_sentences() for part in [s, *_SENTENCE_END.split(s)]}
+    skipped = set(fixed)
+    lines = answer.splitlines()
     claims: list[str] = []
-    for line in answer.splitlines():
+    for k, line in enumerate(lines):
+        if (
+            _TABLE_SEPARATOR.match(line)
+            or _is_table_header(lines, k)
+            or _HEADING_LINE.match(line)
+            or _REVIEW_LINE.match(line)
+        ):
+            skipped.add(claim_key(_LINE_MARKER.sub("", line)))
+            continue
         body = _LINE_MARKER.sub("", line)
         for sentence in _SENTENCE_END.split(body):
             text = _SPACE_BEFORE_PUNCT.sub(r"\1", " ".join(strip_labels(sentence).split()))
-            if normalise(text) and normalise(text) not in fixed:
+            if normalise(text) and claim_key(text) not in fixed:
                 claims.append(text)
-    return list(dict.fromkeys(claims))
+    return list(dict.fromkeys(claims)), skipped
+
+
+def atomic_claims(answer: str) -> list[str]:
+    """The answer's sentences and bullet lines (labels and list markers removed). Not claims (spec 08): fixed
+    system sentences (guarantee lead, mandated wording, precedence sentence, specialist-review block), the
+    reviewer's decision line, block headings ("Next steps:"), and a markdown table's header and separator
+    rows."""
+    return _split(answer)[0]
+
+
+def non_claims(answer: str) -> set[str]:
+    """`claim_key`s of what the splitter skips in `answer`; a judge claim matching one is dropped."""
+    return _split(answer)[1]
 
 
 def evidence_text(evidence: list[Evidence]) -> str:
@@ -103,17 +140,27 @@ def judge_groundedness(
     messages = [SystemMessage(system), HumanMessage(JUDGE_INSTRUCTION)]
     verdict, call = structured_call("judge", GroundednessVerdict, messages, prompt.id, prompt.version, config)
     done = {normalise(c) for c in settled}
-    judged = [c for c in verdict.claims if normalise(c.text) not in done]
+    skip = non_claims(
+        answer
+    )  # the judge splits on its own: a header or system sentence it returns is dropped
+    judged = [c for c in verdict.claims if normalise(c.text) not in done and claim_key(c.text) not in skip]
     return verdict.model_copy(update={"claims": verbatim + judged}), call
 
 
 @lru_cache(maxsize=1)
 def fixed_sentences() -> tuple[str, ...]:
-    """Policy-rule sentences that are not claims: the guarantee lead, the mandated wording, the precedence
-    sentence."""
+    """System sentences that are not claims: the guarantee lead, the mandated wording, the precedence
+    sentence, the customer specialist-review block and the abstention template's wording."""
     g = guardrails()
     lead = template("guarantee_lead", label="").strip()  # "I can't promise an outcome. Final decision …"
-    return (lead, g["no_guarantee"]["mandated_wording"], g["conflict_rendering"]["precedence_sentence"])
+    return (
+        lead,
+        g["no_guarantee"]["mandated_wording"],
+        g["conflict_rendering"]["precedence_sentence"],
+        template("specialist_review_customer"),
+        g["refusals"]["LOW_CONFIDENCE"],
+        template("abstain_heading"),
+    )
 
 
 def _strings(value: Any) -> list[str]:

@@ -76,6 +76,16 @@ def resolve_entities(text: str) -> Entities:
     return Entities(**{field: values[0] for field, values in ids.items()}, product=match_product(text))
 
 
+@lru_cache(maxsize=1)
+def _claim_reference_res() -> tuple[re.Pattern[str], ...]:
+    return tuple(re.compile(p, re.IGNORECASE) for p in _glossary()["routing"]["claim_reference_patterns"])
+
+
+def has_claim_reference(text: str) -> bool:
+    """A claim ID or a phrase pointing at a particular claim ("my claim", "claim number")."""
+    return bool(find_ids(text).get("claim_id")) or any(p.search(text) for p in _claim_reference_res())
+
+
 def is_follow_up(text: str) -> bool:
     return any(_word_re(p).search(text) for p in _glossary()["follow_up_phrases"])
 

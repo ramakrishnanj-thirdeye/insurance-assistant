@@ -202,6 +202,16 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 - [x] AC-06-22 False premise on claim_status: "Is CLM300210 pending?" routed to claim_status → the answer opens with
   "CLM300210 is Approved, not pending [claims:CLM300210]." and passes verify; a generated answer on a mixed turn gets
   the same correction.
+- [x] AC-06-23 A claim intent with no claim ID in the message, no active claim and no claim reference in the
+  question (config/glossary.yaml `routing.claim_reference_patterns`: "my claim", "claim number", ...) is a
+  question about the wording: it routes as policy_question under rule 2, never "Which claim do you mean?"
+  (EVAL036); with a claim reference it still asks which claim (tests/agent/test_agent_units.py).
+- [x] AC-06-24 A planner product entity is kept only when the gazetteer finds it in the message or it comes from
+  the context (the active product, or the product behind a claim or policy in the message or context); an
+  invented product is dropped, so rule 2 handles the question as product-less (EVAL032 root cause).
+- [x] AC-06-25 Confidence gate: a turn whose intents are all policy_question, where no retrieved clause is confident
+  or pinned (filtered by product or not), is answered with the abstention template, never a model-written verdict
+  (EVAL032); a confident or pinned clause still goes to the generator (tests/agent/test_answers.py).
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
 
 - [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.

@@ -17,8 +17,8 @@ from insurai.agent import graph as agent_graph
 from insurai.agent.checkpoint import memory_saver
 from insurai.agent.runner import pending_review, resume, run_turn
 from insurai.agent.schemas import Plan
+from insurai.eval.review import AUTO_APPROVE
 from insurai.observability import get_logger
-from insurai.rules.schemas import ReviewDecision
 from insurai.settings import ROOT
 from insurai.tools.schemas import Persona
 
@@ -107,7 +107,7 @@ def plan_multi_turn(item: RoutingItem, graph: Any) -> Plan | None:
     for turn in item.turns:
         run_turn(graph, thread_id, turn["content"], item.persona, item.principal_id)
         if pending_review(graph, thread_id) is not None:
-            resume(graph, thread_id, ReviewDecision(action="approve", note="eval auto-approve"))
+            resume(graph, thread_id, AUTO_APPROVE)
     return graph.get_state({"configurable": {"thread_id": thread_id}}).values.get("plan")
 
 

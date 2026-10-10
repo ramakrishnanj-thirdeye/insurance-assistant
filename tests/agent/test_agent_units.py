@@ -182,10 +182,63 @@ def test_more_than_four_intents_are_capped_with_a_note() -> None:
 
 
 def test_claim_intent_without_any_claim_asks_which_claim() -> None:
+    message = "What's happening with my claim?"
     final = finalize_plan(
-        plan_of(("claim_status", {})), _ctx(persona="customer", own_claims=lambda: ["CLM1", "CLM2"])
+        plan_of(("claim_status", {}), question=message),
+        _ctx(persona="customer", message=message, own_claims=lambda: ["CLM1", "CLM2"]),
     )
     assert final.clarification == "Which claim do you mean? CLM1, CLM2"
+
+
+# --- AC-06-23 / AC-06-24 -----------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("claim_intent", ["claim_status", "claim_analysis", "claim_documents"])
+def test_AC_06_23_claim_intent_without_any_claim_reference_is_a_policy_question(claim_intent: str) -> None:
+    message = "Does a pre-authorisation at a network hospital mean the bill is already paid?"
+    plan = plan_of((claim_intent, {}), question=message)
+    final = finalize_plan(plan, _ctx(message=message, product_probe=lambda q: "common"))
+    assert final.clarification is None
+    assert [(i.type, i.entities.product) for i in final.intents] == [("policy_question", None)]
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["Has my claim been settled?", "Where is the claim number I was sent?", "Any news on CLM300210?"],
+)
+def test_AC_06_23_claim_reference_still_asks_which_claim(message: str) -> None:
+    final = finalize_plan(plan_of(("claim_status", {}), question=message), _ctx(message=message))
+    assert final.clarification is not None and final.clarification.startswith("Which claim")
+
+
+def test_AC_06_24_invented_product_is_dropped_before_rule_2() -> None:
+    message = "Is treatment for my cat's injury covered?"
+    plan = plan_of(("policy_question", {"product": "Maternity Protect"}), question=message)
+    final = finalize_plan(plan, _ctx(message=message, product_probe=lambda q: "none"))
+    assert final.clarification is None
+    assert [(i.type, i.entities.product) for i in final.intents] == [("policy_question", None)]
+
+
+def test_AC_06_24_product_named_in_message_or_context_is_kept() -> None:
+    message = "Is dental treatment covered under the family care plan?"
+    named = finalize_plan(
+        plan_of(("policy_question", {"product": "Family Care Gold"}), question=message), _ctx(message=message)
+    )
+    assert named.intents[0].entities.product == "Family Care Gold"
+    follow_up = finalize_plan(
+        plan_of(("policy_question", {"product": "Car Shield Plus"}), question="Is it covered?"),
+        _ctx(message="Is it covered?", active=Entities(product="Car Shield Plus")),
+    )
+    assert follow_up.intents[0].entities.product == "Car Shield Plus"
+    via_claim = finalize_plan(
+        plan_of(("policy_question", {"product": "Critical Care Elite"}), question="Is CLM300210 covered?"),
+        _ctx(
+            message="Is CLM300210 covered?",
+            resolved=Entities(claim_id="CLM300210"),
+            product_of=lambda e: "Critical Care Elite" if e.claim_id == "CLM300210" else None,
+        ),
+    )
+    assert via_claim.intents[0].entities.product == "Critical Care Elite"
 
 
 def test_clarification_plan_passes_through() -> None:
@@ -364,7 +417,10 @@ def test_AC_06_19_stray_claim_analysis_next_to_a_policy_question_is_pruned() -> 
         ("claim_analysis", {"claim_id": "CLM300210"}), ("policy_question", {"product": "Two Wheeler Secure"})
     )
     message = "Does this claim's policy pay for riding after drinking?"
-    final = finalize_plan(plan, _ctx(message=message, active=Entities(claim_id="CLM300210")))
+    ctx = _ctx(
+        message=message, active=Entities(claim_id="CLM300210"), product_of=lambda e: "Two Wheeler Secure"
+    )
+    final = finalize_plan(plan, ctx)
     assert _types(final) == ["policy_question"]
 
 
@@ -383,7 +439,7 @@ def test_AC_06_19_unlisted_intents_are_never_pruned() -> None:
     plan = plan_of(
         ("policy_question", {"product": "Car Shield Plus"}), ("hospital_check", {"hospital_id": "HOSP1"})
     )
-    final = finalize_plan(plan, _ctx(message="Is HOSP1 in network, and what about it?"))
+    final = finalize_plan(plan, _ctx(message="Is HOSP1 in network, and what does my car shield cover?"))
     assert _types(final) == ["policy_question", "hospital_check"]
 
 

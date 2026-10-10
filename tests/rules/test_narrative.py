@@ -16,11 +16,12 @@ from insurai.rules.narrative import (
     complete_narrative,
     complete_narrative_with_additions,
     narrative_input,
+    narrative_opening,
     premise_correction,
     question_mode,
     render_assessment,
 )
-from insurai.rules.schemas import ClaimAssessment
+from insurai.rules.schemas import ClaimAssessment, ReviewDecision
 from insurai.tools.schemas import ToolContext
 
 
@@ -89,42 +90,91 @@ def test_complete_narrative_puts_correction_first_and_appends_missing(warehouse_
 
 
 @pytest.mark.integration
-def test_complete_narrative_leaves_a_complete_text_alone(warehouse_ready: None) -> None:
+def test_complete_narrative_keeps_a_complete_text_after_the_templated_opening(warehouse_ready: None) -> None:
     a = _assessment("CLM300101")
-    body = "\n".join(
-        ["Claim CLM300101 is Approved. [claims:CLM300101]"]
-        + [f"- {r.message} [claims:CLM300101]" for r in a.rules if r.message]
-        + a.next_best_actions
-    )
-    assert complete_narrative(body, a) == body
+    findings_and_actions = [f"- {r.message} [claims:CLM300101]" for r in a.rules if r.message]
+    findings_and_actions += a.next_best_actions
+    body = "\n".join(["Claim CLM300101 is Approved. [claims:CLM300101]", *findings_and_actions])
+    # the model's own status opener is replaced by the templated opening; the rest is kept as written
+    assert complete_narrative(body, a) == narrative_opening(a) + "\n\n" + "\n".join(findings_and_actions)
 
 
 @pytest.mark.integration
 def test_AC_11_17_guard_reports_what_it_appended(warehouse_ready: None) -> None:
     complete = _assessment("CLM300101")
     body = "\n".join(
-        ["Claim CLM300101 is Approved. [claims:CLM300101]"]
-        + [f"- {r.message} [claims:CLM300101]" for r in complete.rules if r.message]
+        [f"- {r.message} [claims:CLM300101]" for r in complete.rules if r.message]
         + complete.next_best_actions
     )
-    assert complete_narrative_with_additions(body, complete) == (body, [])
-    control = _assessment("CLM300423")
-    text, added = complete_narrative_with_additions("Nothing stands out. [claims:CLM300423]", control)
-    assert added == ["Claim CLM300423 is Under Review [claims:CLM300423]."] and text.startswith(added[0])
+    assert complete_narrative_with_additions(body, complete)[1] == []  # the opening is not an intervention
+    incomplete = _assessment("CLM300210")
+    _, added = complete_narrative_with_additions("Nothing stands out. [claims:CLM300210]", incomplete)
+    assert added and all(line.startswith("- ") for line in added)
 
 
 @pytest.mark.integration
-def test_complete_narrative_states_the_status_when_missing(warehouse_ready: None) -> None:
-    a = _assessment("CLM300423")  # the control claim: no findings, no actions
-    text = complete_narrative("Nothing stands out. [claims:CLM300423]", a)
-    assert text.startswith("Claim CLM300423 is Under Review [claims:CLM300423].")
+def test_AC_07_10_narrative_opens_with_the_template(warehouse_ready: None) -> None:
+    control = _assessment("CLM300423")  # the control claim: no findings, no actions
+    text = complete_narrative("Nothing stands out. [claims:CLM300423]", control)
+    opening = "Claim CLM300423 is Under Review; 0 blockers; doesn't need human review [claims:CLM300423]."
+    assert text.startswith(opening)
+    assert "next steps" not in text.casefold()  # no actions: no next-steps section
+    assert "next_best_actions" not in narrative_input(control)
+    a = _assessment("CLM300210")
+    assert (
+        narrative_opening(a)
+        == "Claim CLM300210 is Approved; 2 blockers; needs human review [claims:CLM300210]."
+    )
+    for word in ("counts", "labels", "overall position"):
+        assert word not in render_assessment(a).casefold()
+    assert "counts" not in narrative_input(a) and "review" not in narrative_input(a)
+
+
+@pytest.mark.integration
+def test_AC_07_10_one_blocker_is_singular(warehouse_ready: None) -> None:
+    a = _assessment("CLM300210")
+    blockers = [r for r in a.rules if r.status == "fail" and r.severity == "blocker"]
+    others = [r for r in a.rules if r not in blockers]
+    one = a.model_copy(update={"rules": [blockers[0], *others]})
+    assert "; 1 blocker;" in narrative_opening(one)
+
+
+@pytest.mark.integration
+def test_AC_07_11_reviewer_line_is_appended_verbatim_once(warehouse_ready: None) -> None:
+    a = _assessment("CLM300210").model_copy(
+        update={"review": ReviewDecision(action="approve", note="Reviewed and approved.")}
+    )
+    line = "Reviewer decision: **approve**. Reviewer note: Reviewed and approved."
+    text = complete_narrative("Two blockers stand. [claims:CLM300210]", a)
+    assert text.endswith(line) and text.count(line) == 1
+    assert complete_narrative(text, a).count(line) == 1  # idempotent
+    assert render_assessment(a).endswith(line)
+
+
+@pytest.mark.integration
+def test_AC_08_20_repeated_paragraphs_are_kept_once(warehouse_ready: None) -> None:
+    a = _assessment("CLM300012")  # CA005: the baseline narrative repeated this paragraph three times
+    para = (
+        "The claim was made 147 days after the policy started, inside the schedule's 730-day waiting period. "
+        "[policies:POL222386]  \nThe claimant must submit complete documentation. "
+        "[All products §8 Reimbursement Process]"
+    )
+    text = complete_narrative("\n\n".join([para, "Something else. [claims:CLM300012]", para, para]), a)
+    assert text.count("147 days after the policy started") == 1
+    assert text.count("must submit complete documentation") == 1
+
+
+@pytest.mark.integration
+def test_AC_08_17_narrative_input_amounts_are_in_rupees(warehouse_ready: None) -> None:
+    facts = narrative_input(_assessment("CLM300012"))["facts"]
+    assert facts["approved_amount"] == "₹56,714" and facts["claim_amount"] == "₹1,31,115"
 
 
 @pytest.mark.integration
 def test_render_assessment_is_cited_and_complete(warehouse_ready: None) -> None:
     a = _assessment("CLM300210")
     text = render_assessment(a)
-    assert text.startswith("Claim CLM300210 is Approved; the assessment found 5 findings, 2 of them blockers")
+    assert text.startswith(narrative_opening(a))
     assert "[All products §8 Reimbursement Process]" in text and "[policies:POL218917]" in text
     assert "₹58,119" in text and "Next steps:" in text
 
@@ -138,7 +188,7 @@ def _faithful(messages: list[Any]) -> str:
         return re.search(r"<draft>(.*)</draft>", system, re.DOTALL).group(1)  # type: ignore[union-attr]
     data = json.loads(re.search(r"<assessment>(.*)</assessment>", system, re.DOTALL).group(1))  # type: ignore[union-attr]
     lines = [f"- {f['message']} {f['citation']}" for f in data["findings"]]
-    return "\n".join([f"Position. {data['label']}", *lines, *data["next_best_actions"]])
+    return "\n".join([f"Position. {data['claim_citation']}", *lines, *data.get("next_best_actions", [])])
 
 
 def _lazy(messages: list[Any]) -> str:
@@ -173,6 +223,6 @@ def test_narrative_input_is_the_only_source_and_carries_every_label(
 ) -> None:
     a = _assessment(item["labels"]["claim_id"])
     data = narrative_input(a)
-    labels = {f["citation"] for f in data["findings"]} | {data["label"]}
+    labels = {f["citation"] for f in data["findings"]} | {data["claim_citation"]}
     assert labels <= {s.label for s in a.sources}
     assert "fraud_risk_score" not in json.dumps(data)  # the narrative never sees raw scores

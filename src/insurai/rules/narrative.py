@@ -3,7 +3,9 @@
 - `question_mode`: "assess" when the question asks for an assessment, else "explain" (no review pause).
 - `premise_correction`: a cited correction when the question assumes a status the claim does not have.
 - `narrative_input`: the assessment JSON the narrative prompt sees (its only source).
-- `complete_narrative`: the completeness guard; every finding and action appears, the correction leads.
+- `narrative_opening`: the templated first line (status, blockers, review need); the model never writes it.
+- `complete_narrative`: the completeness guard; the correction and the opening lead, every finding and action
+  appears, the reviewer's decision is appended verbatim, repeated paragraphs are removed.
 - `render_assessment`: the no-LLM rendering, the final fallback for claim-analysis turns.
 """
 
@@ -11,13 +13,16 @@ import re
 from typing import Any, Literal
 
 from insurai.agent.prompts import template
+from insurai.formatting import inr
 from insurai.rules.engine import dossier_config
-from insurai.rules.schemas import ClaimAssessment, RuleResult
+from insurai.rules.schemas import ClaimAssessment, ReviewDecision, RuleResult
+from insurai.textblocks import append_once, dedupe_paragraphs
 from insurai.tools.sources import sql_source
 
 Mode = Literal["assess", "explain"]
 CLAUSE_EXCERPT_CHARS = 300
 SEVERITY_ORDER = {"blocker": 0, "escalate": 1, "warning": 2, "info": 3}
+AMOUNT_FACTS = ("claim_amount", "approved_amount")  # shown to the model in rupees, never as bare numbers
 
 
 def _phrase(words: str) -> re.Pattern[str]:
@@ -80,7 +85,8 @@ def citation_of(result: RuleResult, assessment: ClaimAssessment) -> str:
 
 
 def narrative_input(assessment: ClaimAssessment, correction: str | None = None) -> dict[str, Any]:
-    """What the narrative prompt sees: facts that matter, findings with citations, actions, clauses."""
+    """What the narrative prompt sees: facts that matter, findings with citations, actions, clauses. No counts
+    and no review: the opening and the reviewer's line are added verbatim after the model writes."""
     customer = assessment.view == "customer"
     facts = assessment.facts
     keep = (
@@ -96,10 +102,9 @@ def narrative_input(assessment: ClaimAssessment, correction: str | None = None) 
     data: dict[str, Any] = {
         "claim_id": assessment.claim_id,
         "view": assessment.view,
-        "label": sql_source("claims", assessment.claim_id).label,
-        "facts": {k: facts.get(k) for k in keep if k in facts},
+        "claim_citation": sql_source("claims", assessment.claim_id).label,
+        "facts": {k: _fact(k, facts.get(k)) for k in keep if k in facts},
         "needs_human_review": assessment.needs_human_review,
-        "counts": counts(assessment),
         "findings": [
             {
                 **({} if customer else {"rule": r.id}),
@@ -112,19 +117,52 @@ def narrative_input(assessment: ClaimAssessment, correction: str | None = None) 
             for r in findings(assessment)
         ],
         "untracked_documents": assessment.checklist.untracked,
-        "next_best_actions": assessment.next_best_actions,
         "clauses": [
             {"label": c.chunk.citation_label, "text": c.chunk.text[:CLAUSE_EXCERPT_CHARS]}
             for c in assessment.clauses
         ],
     }
+    if assessment.next_best_actions:  # left out when empty, so no empty next-steps section is written
+        data["next_best_actions"] = assessment.next_best_actions
     if not customer:
         data["consistency_flags"] = [f.name for f in assessment.consistency]
-    if assessment.review is not None:
-        data["review"] = assessment.review.model_dump()
     if correction:
         data["premise_correction"] = correction
     return data
+
+
+def _fact(key: str, value: Any) -> Any:
+    if key in AMOUNT_FACTS and isinstance(value, int | float) and not isinstance(value, bool):
+        return inr(value)
+    return value
+
+
+def narrative_opening(assessment: ClaimAssessment) -> str:
+    """ "Claim X is <status>; N blockers; needs / doesn't need human review [claims:X]." """
+    blockers = counts(assessment)["blockers"]
+    return template(
+        "narrative_opening",
+        claim_id=assessment.claim_id,
+        claim_status=assessment.facts.get("claim_status"),
+        blockers=template("narrative_blocker_one" if blockers == 1 else "narrative_blockers", n=blockers),
+        review=template(
+            "narrative_review_needed" if assessment.needs_human_review else "narrative_review_not_needed"
+        ),
+        label=sql_source("claims", assessment.claim_id).label,
+    )
+
+
+def review_line(review: ReviewDecision) -> str:
+    """The reviewer's decision and note, verbatim from the template (never reworded by a model)."""
+    return template("review_decision", action=review.action, note=review.note or "(none)")
+
+
+def _without_status_opener(body: str, claim_id: str) -> str:
+    """The model's own status opener ("Claim X is ..." starting a line) removed: the opening states it."""
+    opener = re.compile(
+        rf"^(\s*)\**claim\s+{re.escape(claim_id)}\**\s+is\b[^.\n]*\.\s*(?:\[[^\]\n]+\]\s*)*", re.IGNORECASE
+    )
+    return "\n".join(opener.sub(r"\1", line) for line in body.split("\n")).strip()
 
 
 def _norm(text: str) -> str:
@@ -132,28 +170,22 @@ def _norm(text: str) -> str:
 
 
 def complete_narrative(text: str, assessment: ClaimAssessment, correction: str | None = None) -> str:
-    """The completeness guard: the correction leads; the claim's status is stated (cited) when the model left
-    it out; any finding message or action the model left out is appended verbatim with its citation, so every
-    blocker is mentioned whatever the model wrote."""
+    """The completeness guard: the correction leads, then the templated opening; any finding message or
+    action the model left out is appended verbatim with its citation, so every blocker is mentioned whatever
+    the model wrote; the reviewer's decision closes it."""
     return complete_narrative_with_additions(text, assessment, correction)[0]
 
 
 def complete_narrative_with_additions(
     text: str, assessment: ClaimAssessment, correction: str | None = None
 ) -> tuple[str, list[str]]:
-    """`complete_narrative` plus what the guard added: the status line, each "Also noted" finding and each
-    "Next steps" action (the spec 11 guard_interventions diagnostic);
-    empty when the model's text was complete."""
+    """`complete_narrative` plus what the guard added: each "Also noted" finding and each "Next steps" action
+    (the spec 11 guard_interventions diagnostic); empty when the model's text was complete. The templated
+    opening and the reviewer's line are presentation, not interventions."""
     body = text.strip()
     if correction:
         body = body.replace(correction, "").strip()
-    added: list[str] = []
-    status = assessment.facts.get("claim_status")
-    if status and str(status).casefold() not in f"{correction or ''} {body}".casefold():
-        label = sql_source("claims", assessment.claim_id).label
-        line = f"Claim {assessment.claim_id} is {status} {label}."
-        body = f"{line}\n\n{body}"
-        added.append(line)
+    body = dedupe_paragraphs(_without_status_opener(body, assessment.claim_id))
     seen = _norm(body)
     missing = [
         f"- {r.message} {citation_of(r, assessment)}"
@@ -162,32 +194,32 @@ def complete_narrative_with_additions(
     ]
     actions = [a for a in assessment.next_best_actions if _norm(a) not in seen]
     parts = [correction] if correction else []
-    parts.append(body)
+    parts += [narrative_opening(assessment), body]
     if missing:
         parts.append("Also noted:\n" + "\n".join(missing))
     if actions:
         label = sql_source("claims", assessment.claim_id).label
         parts.append("Next steps:\n" + "\n".join(f"- {a} {label}" for a in actions))
-    return "\n\n".join(p for p in parts if p), added + missing + [f"- {a}" for a in actions]
+    if assessment.review is not None:
+        parts.append(review_line(assessment.review))
+    out = ""
+    for part in parts:
+        out = append_once(out, part)
+    return dedupe_paragraphs(out), missing + [f"- {a}" for a in actions]
 
 
 def render_assessment(assessment: ClaimAssessment, correction: str | None = None) -> str:
-    """The assessment as markdown without an LLM: position, findings and next steps, each cited. The
-    reviewer decision is not repeated here: `respond` appends it to every answer after a review."""
+    """The assessment as markdown without an LLM: the opening, findings and next steps, each cited, then the
+    reviewer's decision (`respond` does not repeat it)."""
     label = sql_source("claims", assessment.claim_id).label
-    n = counts(assessment)
-    position = (
-        f"Claim {assessment.claim_id} is {assessment.facts.get('claim_status')}; the assessment found "
-        f"{n['findings']} findings, {n['blockers']} of them blockers"
-        + (", and needs human review" if assessment.needs_human_review else "")
-        + f" {label}."
-    )
     lines = [correction] if correction else []
-    lines.append(position)
+    lines.append(narrative_opening(assessment))
     hits = [f"- {r.message} {citation_of(r, assessment)}" for r in findings(assessment) if r.message]
     if hits:
         lines.append("\n".join(hits))
     if assessment.next_best_actions:
         steps = (f"{k}. {a} {label}" for k, a in enumerate(assessment.next_best_actions, start=1))
         lines.append("Next steps:\n" + "\n".join(steps))
+    if assessment.review is not None:
+        lines.append(review_line(assessment.review))
     return "\n\n".join(lines)

@@ -147,7 +147,7 @@ def test_claim_analysis_reports_v7_on_narratives_in_phase_2(
         if "<draft>" in system:
             return re.search(r"<draft>(.*)</draft>", system, re.DOTALL).group(1)  # type: ignore[union-attr]
         data = json.loads(re.search(r"<assessment>(.*)</assessment>", system, re.DOTALL).group(1))  # type: ignore[union-attr]
-        return f"Position. {data['label']}"
+        return f"Position. {data['claim_citation']}"
 
     seen: list[str] = []
 

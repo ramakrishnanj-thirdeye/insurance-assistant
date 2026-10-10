@@ -25,7 +25,7 @@ Agreement counts a judge score within ±1 of yours.
 > | Reimbursement    | 30 days                     |
 > | Cashless         | Pre-authorization required  |
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [4]
 
 ### CAL02 · policy_clauses_e2e EVAL002
 
@@ -44,7 +44,7 @@ Agreement counts a judge score within ±1 of yours.
 > | Claim Procedure | Notify planned hospitalization 48 hours in advance where feasible; emergency hospitalization should be notified within 24 hours. [Family Care Gold §10 Claim Procedure] |  
 > | Maternity | Available only where maternity add-on is active; 24-month waiting period applies. [Family Care Gold §5 Maternity] |
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [4]
 
 ### CAL03 · policy_clauses_e2e EVAL018
 
@@ -61,7 +61,7 @@ Agreement counts a judge score within ±1 of yours.
 > - Co-payment details are not explicitly outlined in the policy schedule [Senior Health Shield §2 Sum Insured].  
 > - The policy schedule governs this policy's numbers; the product wording describes the general terms.
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [2]
 
 ### CAL04 · policy_clauses_e2e EVAL016
 
@@ -78,7 +78,7 @@ Agreement counts a judge score within ±1 of yours.
 > - The sum insured available is ₹2,00,000 / ₹5,00,000 [Maternity Protect §2 Sum Insured].  
 > - There is a 24-month waiting period for maternity benefits [Maternity Protect §4 Waiting Period].
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [5]
 
 ### CAL05 · policy_clauses_e2e EVAL015
 
@@ -94,7 +94,7 @@ Agreement counts a judge score within ±1 of yours.
 > - Elective fertility treatments are excluded unless specifically endorsed [Maternity Protect §9 Exclusions].  
 > - A 24-month waiting period applies for maternity benefits [Maternity Protect §4 Waiting Period].
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [4]
 
 ### CAL06 · policy_clauses_e2e EVAL005
 
@@ -106,7 +106,7 @@ Agreement counts a judge score within ±1 of yours.
 
 > Known pre-existing conditions are not covered under Global Travel Secure unless specifically covered [Global Travel Secure §9 Exclusions].
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [5]
 
 ### CAL07 · claim_analysis CA002
 
@@ -126,7 +126,7 @@ Agreement counts a judge score within ±1 of yours.
 > 2. Confirm the policy period; the claim date falls outside it  
 > 3. Collect Repair estimate, Registration certificate, Driving licence, FIR where applicable, Vehicle inspection report outside the system; they are not tracked in the document records.
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [4]
 
 ### CAL08 · claim_analysis CA009
 
@@ -147,7 +147,7 @@ Agreement counts a judge score within ±1 of yours.
 > 1. Request Claim Form, Discharge Summary, Prescription from the customer  
 > 2. Route to the manual review queue
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [5]
 
 ### CAL09 · claim_analysis CA010
 
@@ -166,7 +166,7 @@ Agreement counts a judge score within ±1 of yours.
 > The next best actions are:  
 > 1. None.
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [4]
 
 ### CAL10 · claim_analysis CA005
 
@@ -192,7 +192,7 @@ Agreement counts a judge score within ±1 of yours.
 > Also noted:
 > - 4 of 6 required documents are missing: Claim Form, Diagnostic Report, Hospital Bill, Prescription. [All products §8 Reimbursement Process]
 
-**Your score (1–5):** [ ]
+**Your score (1–5):** [3]
 
 ## Part B: V7 "unsupported" verdicts (7 of 7, seed 42)
 
@@ -225,7 +225,7 @@ summary: Closest clauses: [Senior Health Shield §4 Waiting Period], [Senior Hea
 
 </details>
 
-- [ ] correct (the claim is unsupported)
+- [x] correct (the claim is unsupported)
 - [ ] false positive (the evidence supports it)
 
 ### V7-02 · policy_clauses_e2e EVAL028
@@ -258,7 +258,7 @@ summary: Closest clauses: [All products §8 Reimbursement Process], [Family Care
 </details>
 
 - [ ] correct (the claim is unsupported)
-- [ ] false positive (the evidence supports it)
+- [x] false positive (the evidence supports it)
 
 ### V7-03 · policy_clauses_e2e EVAL032
 
@@ -281,7 +281,7 @@ summary: Closest clauses: [Maternity Protect §9 Exclusions], [Maternity Protect
 
 </details>
 
-- [ ] correct (the claim is unsupported)
+- [x] correct (the claim is unsupported)
 - [ ] false positive (the evidence supports it)
 
 ### V7-04 · policy_clauses_e2e EVAL032
@@ -305,7 +305,7 @@ summary: Closest clauses: [Maternity Protect §9 Exclusions], [Maternity Protect
 
 </details>
 
-- [ ] correct (the claim is unsupported)
+- [x] correct (the claim is unsupported)
 - [ ] false positive (the evidence supports it)
 
 ### V7-05 · policy_clauses_e2e EVAL039
@@ -341,7 +341,7 @@ summary: Closest clauses: [Student Travel Protect §4 Waiting Period], [Student 
 </details>
 
 - [ ] correct (the claim is unsupported)
-- [ ] false positive (the evidence supports it)
+- [x] false positive (the evidence supports it)
 
 ### V7-06 · comparisons CMP001
 
@@ -377,7 +377,7 @@ summary: Closest clauses: [Family Care Gold §4 Waiting Period], [Family Care Go
 </details>
 
 - [ ] correct (the claim is unsupported)
-- [ ] false positive (the evidence supports it)
+- [x] false positive (the evidence supports it)
 
 ### V7-07 · adversarial ADV004
 
@@ -430,4 +430,4 @@ summary: Closest clauses: [All products §7 Cashless / Network P
 </details>
 
 - [ ] correct (the claim is unsupported)
-- [ ] false positive (the evidence supports it)
+- [x] false positive (the evidence supports it)

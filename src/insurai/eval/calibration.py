@@ -13,6 +13,12 @@ rows for those items carry `judge_score: "sealed"`. Then agreement (|judge − h
 counts and an interval; below 80% the report is marked "judge uncalibrated". V7 precision is correct ÷
 (correct + false positive) over the marked Part B items, reported with the sampled n.
 
+While the judge is uncalibrated (agreement not scored or below 80%), the judge-based metrics named in
+`eval.advisory_when_uncalibrated` (correctness, faithfulness) are reported as advisory and not gated. The
+report carries a per-item table (human score, judge score, agreement; V7 verdict against the human mark),
+the human-verified correctness of the Part A sample (human score >= 4), and a re-score of Part B with the
+current claim splitter: how many sampled flags would no longer reach the judge at all.
+
 `python -m insurai.eval.calibration --score` recomputes the status from the file without a full run.
 """
 
@@ -26,8 +32,9 @@ from typing import Any
 from insurai.eval import claim_analysis, correctness
 from insurai.eval.e2e import CLAUSES_SLICE, load_items
 from insurai.eval.stats import fmt_prop, ratio, wilson
+from insurai.guardrails.groundedness import claim_key, non_claims
 from insurai.observability import get_logger
-from insurai.settings import ROOT
+from insurai.settings import ROOT, get_settings
 
 log = get_logger(__name__)
 
@@ -270,6 +277,19 @@ def status(md: Path | None = None, cal_dir: Path | None = None) -> dict[str, Any
         pairs = [(scored[k], judge[k]) for k in scored if k in judge]
         k = sum(abs(h - j) <= WITHIN for h, j in pairs)
         part_a |= {"status": "scored", "agreement": ratio(k, len(pairs)), "counts": [k, len(pairs)]}
+        by_id = {i["id"]: i for i in frozen["part_a"]}
+        part_a["rows"] = [
+            {
+                "id": cid,
+                "item": f"{by_id[cid]['slice']} {by_id[cid]['item_id']}" if cid in by_id else "",
+                "human": h,
+                "judge": judge.get(cid),
+                "agree": None if cid not in judge else abs(h - judge[cid]) <= WITHIN,
+            }
+            for cid, h in scored.items()
+        ]
+        hk = sum(h >= correctness.CORRECT_MIN for h in scored.values())
+        part_a["human_correct"] = [hk, len(scored)]
     marks = v7_marks(text)
     marked = [v for v in marks.values() if v is not None]
     part_b: dict[str, Any] = {"sampled": len(marks), "total": frozen.get("part_b_total", len(marks))}
@@ -278,10 +298,45 @@ def status(md: Path | None = None, cal_dir: Path | None = None) -> dict[str, Any
     else:
         k = sum(v == "correct" for v in marked)
         part_b |= {"status": "scored", "precision": ratio(k, len(marked)), "counts": [k, len(marked)]}
+        part_b |= rescore_part_b(frozen.get("part_b", []), marks)
     out = {"part_a": part_a, "part_b": part_b}
     agreement = part_a.get("agreement")
     out["uncalibrated"] = agreement is not None and agreement < AGREEMENT_MIN
     return out
+
+
+def is_calibrated(state: dict[str, Any]) -> bool:
+    """Judge-based metrics are gated only once agreement is scored and at least AGREEMENT_MIN."""
+    agreement = state.get("part_a", {}).get("agreement")
+    return agreement is not None and agreement >= AGREEMENT_MIN
+
+
+def rescore_part_b(items: list[dict[str, Any]], marks: dict[str, str | None]) -> dict[str, Any]:
+    """Each sampled V7 flag against the current claim splitter: `reaches_judge` is False when the claim is
+    one the splitter skips (a table header, a fixed system sentence), so it is neither sent to the judge nor
+    kept from the judge's own claim list. Precision after: correct marks among the flags still reaching it."""
+    rows = []
+    for item in items:
+        skipped = non_claims(item.get("answer", ""))
+        rows.append(
+            {
+                "id": item["id"],
+                "item": f"{item['slice']} {item['item_id']}",
+                "claim": item["claim"],
+                "verdict": "unsupported",
+                "human": marks.get(item["id"]),
+                "agree": marks.get(item["id"]) == "correct",
+                "reaches_judge": claim_key(item["claim"]) not in skipped,
+            }
+        )
+    still = [r for r in rows if r["reaches_judge"]]
+    k = sum(r["human"] == "correct" for r in still)
+    return {
+        "rows": rows,
+        "dropped": [len(rows) - len(still), len(rows)],
+        "precision_after": ratio(k, len(still)),
+        "counts_after": [k, len(still)],
+    }
 
 
 def sealed_ids(cal_dir: Path | None = None, md: Path | None = None) -> set[tuple[str, str]]:
@@ -319,8 +374,63 @@ def describe(state: dict[str, Any]) -> list[str]:
         )
     else:
         lines.append(f"V7 precision: {b['status']} ({b.get('marked', 0)} of {b['sampled']} marked)")
-    if state.get("uncalibrated"):
-        lines.append(f"**judge uncalibrated** (agreement below {AGREEMENT_MIN:.0%})")
+    if a.get("human_correct"):
+        k, n = a["human_correct"]
+        lines.append(f"Human-verified correctness on the calibration sample (score >= 4): {fmt_prop(k, n)}")
+    if b.get("dropped"):
+        d, n = b["dropped"]
+        k, m = b["counts_after"]
+        lines.append(
+            f"V7 Part B re-scored with the current claim splitter: {d} of {n} sampled flags no longer reach "
+            f"the judge; precision over the rest: {fmt_prop(k, m)}"
+        )
+    if not is_calibrated(state):
+        reason = (
+            f"agreement below {AGREEMENT_MIN:.0%}"
+            if state.get("uncalibrated")
+            else "agreement not yet scored"
+        )
+        lines.append(
+            f"**judge uncalibrated** ({reason}): judge-based metrics ({', '.join(advisory_metrics())}) are "
+            "reported as advisory, not gated"
+        )
+    return lines
+
+
+def advisory_metrics() -> list[str]:
+    return list(get_settings().eval.advisory_when_uncalibrated)
+
+
+def table_lines(state: dict[str, Any]) -> list[str]:
+    """The per-item calibration tables for the report (empty until the marks are in)."""
+    a, b = state.get("part_a", {}), state.get("part_b", {})
+    lines: list[str] = []
+    if a.get("rows"):
+        lines += [
+            "### Part A: correctness judge vs human",
+            "",
+            "| Item | Slice item | Human | Judge | Agree (±1) |",
+        ]
+        lines.append("| --- | --- | --- | --- | --- |")
+        for r in a["rows"]:
+            agree = "–" if r["agree"] is None else ("yes" if r["agree"] else "no")
+            judge = "–" if r["judge"] is None else r["judge"]
+            lines.append(f"| {r['id']} | {r['item']} | {r['human']} | {judge} | {agree} |")
+        lines.append("")
+    if b.get("rows"):
+        lines += [
+            "### Part B: V7 verdicts vs human",
+            "",
+            "| Item | Slice item | Claim | V7 verdict | Human | Agree | Reaches judge now |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for r in b["rows"]:
+            claim = r["claim"].replace("|", "\\|")
+            lines.append(
+                f"| {r['id']} | {r['item']} | {claim} | {r['verdict']} | {r['human'] or '–'} | "
+                f"{'yes' if r['agree'] else 'no'} | {'yes' if r['reaches_judge'] else 'no'} |"
+            )
+        lines.append("")
     return lines
 
 
@@ -329,7 +439,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--score", action="store_true", required=True, help="recompute from the file")
     parser.parse_args(argv)
     state = status()
-    for line in describe(state):
+    for line in describe(state) + table_lines(state):
         log.info("%s", line)
     if "part_a" in state and state["part_a"].get("counts"):
         k, n = state["part_a"]["counts"]

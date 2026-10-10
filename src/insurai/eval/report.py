@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from insurai.eval.calibration import describe
+from insurai.eval.calibration import describe, table_lines
 from insurai.eval.stats import SMALL_N, fmt_prop
 
 LIST_PREVIEW = 12
@@ -30,14 +30,17 @@ def render(report: dict[str, Any]) -> str:
         lines.append(f"- **{drafts} draft items** (not yet signed off) are included in the metrics below")
     lines += [f"- {line}" for line in describe(report.get("calibration") or {})]
     lines += ["", "## Open gates", ""]
-    open_gates = report.get("open_gates") or []
+    missed = report.get("open_gates") or []
+    open_gates = [g for g in missed if not g.get("advisory")]
+    advisory = [g for g in missed if g.get("advisory")]
     if open_gates:
-        lines += ["| Metric | Value | Target |", "| --- | --- | --- |"]
-        for g in open_gates:
-            value = fmt_prop(*g["counts"]) if g.get("counts") else str(g["value"])
-            lines.append(f"| {g['metric']} | {value} | {g['target']} |")
+        lines += _gate_table(open_gates)
     else:
-        lines.append("Every target that ran is met.")
+        lines.append("Every gated target that ran is met.")
+    if advisory:
+        lines += ["", "## Advisory (judge uncalibrated, not gated)", "", *_gate_table(advisory)]
+    if tables := table_lines(report.get("calibration") or {}):
+        lines += ["", "## Judge calibration", "", *tables]
     gate = report.get("gate")
     if gate is not None:
         lines += ["", "## Gate", ""]
@@ -53,6 +56,14 @@ def render(report: dict[str, Any]) -> str:
         for metric, value in result.get("metrics", {}).items():
             lines.append(f"| {metric} | {_cell(value, counts.get(metric))} |")
     return "\n".join(lines) + "\n"
+
+
+def _gate_table(rows: list[dict[str, Any]]) -> list[str]:
+    lines = ["| Metric | Value | Target |", "| --- | --- | --- |"]
+    for g in rows:
+        value = fmt_prop(*g["counts"]) if g.get("counts") else str(g["value"])
+        lines.append(f"| {g['metric']} | {value} | {g['target']} |")
+    return lines
 
 
 def write_markdown(report: dict[str, Any], json_path: Path) -> Path:

@@ -16,10 +16,10 @@ from insurai.agent.checkpoint import memory_saver
 from insurai.agent.runner import pending_review, resume, run_turn
 from insurai.eval.e2e import refusal_of
 from insurai.eval.groundedness import final_checks, verifier_pass_rates
+from insurai.eval.review import AUTO_APPROVE
 from insurai.eval.sql_facts import load_dataset
 from insurai.guardrails.verify import number_tokens
 from insurai.observability import get_logger
-from insurai.rules.schemas import ReviewDecision
 
 log = get_logger(__name__)
 
@@ -79,7 +79,7 @@ def run_slice() -> dict[str, Any]:
         try:
             result = run_turn(graph, thread, item.turns[0]["content"], item.persona, item.principal_id)
             if pending_review(graph, thread) is not None:
-                result = resume(graph, thread, ReviewDecision(action="approve", note="eval auto-approve"))
+                result = resume(graph, thread, AUTO_APPROVE)
             answer, error, checks = result.answer_markdown, None, final_checks(result.trace)
             refused = refusal_of(answer, result.trace)
         except Exception as exc:  # scored as a miss
