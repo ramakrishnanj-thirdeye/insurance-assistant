@@ -70,8 +70,10 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 ## Routing rules
 1. **Fast path**: message matches `\bCLM\d{6}\b` exactly once, contains a status keyword (status, state, where is, update), has ≤ 12 words, and no other intent keyword → Plan with one claim_status intent, no LLM call. Answer from a template (`config/prompts/templates.md`), still verified.
 2. **Product resolution** for policy_question: explicit product → use it; else active_entities.product (set whenever a claim or policy is resolved: claim → policy → product); else customer persona with exactly one in-force product → that product; several → clarification listing them; agent persona with nothing → clarification "Which product?". Generic questions that apply to all products (e.g. "can approval be guaranteed?") need no product: the planner marks them `policy_type=None, product=None` and retrieval runs unfiltered; common chunks answer them.
-   Before asking, one unfiltered `search_policy` probe decides (decided 2026-10-05): a confident top hit on a common
-   (ALL) chunk → run unfiltered, common chunks answer; a confident product-specific top hit → clarification "Which
+   Before asking, one unfiltered `search_policy` probe decides (decided 2026-10-05; top 3 since 2026-10-10,
+   EVAL036): a confident common (ALL) chunk anywhere in the probe's top `agent.common_probe_top_k` (3) search hits
+   → run unfiltered and answer from the common sections only (the intent is marked `common_only`; policy_rag drops
+   the product-specific chunks, AC-06-26); otherwise a confident product-specific hit → clarification "Which
    product?" (AC-06-06); no confident hit anywhere → no clarification, run unfiltered and answer with the abstention
    template (LOW_CONFIDENCE plus the closest clauses, cited), without an LLM synthesis.
    A claim intent with no claim anywhere (message or active_entities), or a policy_details intent with no policy or
@@ -212,6 +214,10 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
 - [x] AC-06-25 Confidence gate: a turn whose intents are all policy_question, where no retrieved clause is confident
   or pinned (filtered by product or not), is answered with the abstention template, never a model-written verdict
   (EVAL032); a confident or pinned clause still goes to the generator (tests/agent/test_answers.py).
+- [x] AC-06-26 Rule 2: a confident common (ALL) chunk anywhere in the unfiltered probe's top 3 answers from the
+  common sections (product-specific chunks dropped from the evidence) instead of asking for a product: a
+  cashless-versus-settlement question answers from §7 Cashless / Network Process (EVAL036); "What is the waiting
+  period?" still asks which product (tests/agent/test_common_sections.py, unit and real index).
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
 
 - [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.

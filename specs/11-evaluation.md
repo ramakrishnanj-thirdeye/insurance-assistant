@@ -36,7 +36,7 @@ Unanswerable probes (10, inside policy_clauses with `tags: [unanswerable]`) tune
 | mrr | 1 / rank of the first gold label (0 if absent in top 20) |
 | exec_accuracy | result sets equal after sorting rows, rounding floats to 2 dp, ignoring column names; order compared only when gold SQL has ORDER BY with LIMIT |
 | correctness | sql_facts: normalised value match; others: judge score ≥ 4 on a 1–5 rubric (judge_correctness.md), on policy_clauses_e2e, comparisons and claim_analysis (gold built from the signed-off labels) |
-| faithfulness | share of atomic claims supported by evidence (V7 judge in the eval, whatever `v7_live` says; a claim verbatim in the evidence is settled without a judge call) |
+| faithfulness | share of atomic claims supported by evidence (V7 judge in the eval, whatever `v7_live` says; a claim verbatim in the evidence is settled without a judge call): (verbatim + judge-supported) / (verbatim + judged), the headline and the target. Reported next to it: `faithfulness_judged` = judge-supported / judged (the stricter diagnostic), `v7_excluded_total` (claims of failed judge batches, in neither denominator) and `v7_judge_errors` (rows whose judge failed outright) |
 | citation_accuracy | answer cites ≥ 1 gold label and no invalid labels |
 | refusal_correct | must_refuse items refused with the expected refusal_code (input guard code, leading refusal text, or that refusal text in the answer) |
 | false_refusal | non-adversarial answerable items refused (policy_clauses_e2e, comparisons, e2e_sql_facts, guardrails; probes excluded), reported as `suite.false_refusal` |
@@ -116,3 +116,7 @@ For a proportion with n < 30 a drop fails only above max(0.02, 1/n): one item of
   still reaches the judge with the current splitter) and the human-verified correctness of the calibration sample
   with its interval.
 - [x] AC-11-22 `--slice` can be repeated; the slices run into one report named `slice-<a>+<b>_<ts>`.
+- [x] AC-11-23 Faithfulness counts the claims split in code, not the claims the judge returns: `faithfulness`
+  = (verbatim + supported) / (verbatim + judged) and `faithfulness_judged` = supported / judged, both with counts
+  and intervals; claims of a failed batch are excluded and counted (`v7_excluded`), a judge failing outright is a
+  `v7_judge_error` (tests/eval/test_v7_faithfulness.py).

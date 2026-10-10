@@ -37,7 +37,6 @@ def test_slice_scores_rules_interrupts_mentions_and_judge(
             "Text": _narrator,
             "InventedFindings": lambda m: {"invented": [], "count": 0},
             "CorrectnessScore": lambda m: {"score": 4, "reason": "ok"},
-            "GroundednessVerdict": lambda m: {"claims": []},
         },
     )
     result = claim_analysis.run_slice()

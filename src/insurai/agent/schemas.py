@@ -55,6 +55,8 @@ class Intent(BaseModel):
     question: SkipJsonSchema[str | None] = None
     # policy_question on a guarantee turn: sections fetched by chunk id next to the search (spec 08).
     pinned_sections: SkipJsonSchema[list[int] | None] = None
+    # policy_question routed by rule 2 to the common sections: the search keeps only common (ALL) chunks.
+    common_only: SkipJsonSchema[bool] = False
 
 
 class Plan(BaseModel):

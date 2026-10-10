@@ -14,6 +14,7 @@ from insurai.agent.state import WorkerInput
 from insurai.agent.trace import event, now_ms
 from insurai.formatting import inr
 from insurai.knowledge.coverage import ATTRIBUTE_SECTIONS
+from insurai.knowledge.parse import ALL
 from insurai.retrieval.glossary import expand
 from insurai.retrieval.schemas import RetrievalResult
 from insurai.settings import get_settings
@@ -196,7 +197,27 @@ def policy_rag(payload: WorkerInput) -> dict[str, Any]:
     rec.call(
         "search_policy", query=rec.intent.sub_question, product=e.product, policy_type=e.policy_type, **pinned
     )
+    if rec.intent.common_only:
+        _keep_common(rec)
     return rec.output(start)
+
+
+def _keep_common(rec: Recorder) -> None:
+    """Rule 2 routed this question to the common sections: drop the product-specific chunks the unfiltered
+    search returned, so no product's wording answers a question about every product (pinned chunks stay)."""
+    ev = rec.evidence[-1]
+    if ev.kind != "RetrievalResult":
+        return
+    pinned = set(ev.payload.get("pinned", []))
+    clauses = [c for c in ev.payload["clauses"] if c["product"] == ALL or c["label"] in pinned]
+    labels = list(dict.fromkeys(c["label"] for c in clauses))
+    rec.evidence[-1] = ev.model_copy(
+        update={
+            "payload": {**ev.payload, "clauses": clauses, "common_only": True},
+            "sources": [s for s in ev.sources if s.label in labels],
+            "summary": f"Closest clauses: {', '.join(labels) or 'none'}.",
+        }
+    )
 
 
 def _keep_policy_type(rec: Recorder, policy_type: str) -> None:

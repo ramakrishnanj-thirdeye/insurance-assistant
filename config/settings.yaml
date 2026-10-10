@@ -71,6 +71,7 @@ agent:
   turn_timeout_s: 300            # a thread `running` longer than this is stale; a new request takes it over (spec 09)
   heartbeat_s: 2.0               # while a node runs longer than this, SSE `heartbeat` every heartbeat_s (spec 09)
   dossier_polish_customer_message: true  # small-model polish of the dossier's customer message (spec 07); false = template only
+  common_probe_top_k: 3          # routing rule 2: a confident common (ALL) chunk in the probe's top k answers from the common sections (spec 06)
 
 api:
   host: 127.0.0.1

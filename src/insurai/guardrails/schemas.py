@@ -36,11 +36,26 @@ class GroundedClaim(BaseModel):
     settled_by: SkipJsonSchema[Literal["judge", "verbatim"]] = "judge"
 
 
+class ClaimVerdict(BaseModel):
+    n: int  # the claim's number in the batch sent to the judge
+    supported: bool
+    evidence_label: str | None = None
+
+
+class ClaimVerdicts(BaseModel):
+    """V7 judge output (verify_groundedness.md): one verdict per numbered claim of a batch."""
+
+    verdicts: list[ClaimVerdict] = Field(default_factory=list)
+    conflict_rule_followed: bool | None = None
+
+
 class GroundednessVerdict(BaseModel):
-    """V7 judge output (verify_groundedness.md)."""
+    """V7 result: verbatim-settled and judged claims, assembled from the judge's batches."""
 
     claims: list[GroundedClaim] = Field(default_factory=list)
     conflict_rule_followed: bool | None = None
+    # claims of a batch whose verdicts failed validation twice: neither supported nor unsupported
+    judge_errors: SkipJsonSchema[list[str]] = Field(default_factory=list)
 
 
 class HiddenValues(BaseModel):

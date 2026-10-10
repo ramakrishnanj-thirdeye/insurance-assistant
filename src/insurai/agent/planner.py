@@ -10,7 +10,6 @@ needs (spec 08). It never invents an ID.
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
@@ -21,9 +20,7 @@ from insurai.agent.schemas import NO_WORKER, Entities, Intent, Plan
 from insurai.rules.narrative import question_mode
 from insurai.tools.schemas import Persona
 
-# Routing rule 2 probe (an unfiltered search_policy): a confident common (ALL) top hit needs no product;
-# a confident product-specific top hit needs one; no confident hit anywhere is answered with the abstention.
-ProbeOutcome = Literal["common", "product", "none"]
+ProbeOutcome = routing.ProbeOutcome
 
 CLAIM_INTENTS = frozenset({"claim_status", "claim_documents", "claim_interactions", "claim_analysis"})
 PRODUCT_INTENTS = frozenset({"policy_question"})
@@ -98,10 +95,11 @@ def finalize_plan(plan: Plan, ctx: PlanContext) -> Plan:
             intent = intent.model_copy(update={"type": "policy_question"})
             entities = Entities(product=product)
         if intent.type in PRODUCT_INTENTS and entities.product is None:
-            product, clarification = _resolve_product(intent, entities, ctx)
+            product, clarification, common_only = _resolve_product(intent, entities, ctx)
             if clarification:
                 return Plan(clarification=clarification)
             entities = entities.model_copy(update={"product": product})
+            intent = intent.model_copy(update={"common_only": common_only})
         update: dict[str, object] = {"entities": entities, "mode": None, "question": None}
         if intent.type == "claim_analysis":  # explain vs assess (deterministic, from the user's words)
             mode = "explain" if promoted else question_mode(ctx.message)
@@ -167,17 +165,22 @@ def _trusted_product(name: str | None, ctx: PlanContext) -> str | None:
     return None
 
 
-def _resolve_product(intent: Intent, e: Entities, ctx: PlanContext) -> tuple[str | None, str | None]:
-    """Routing rule 2 → (product, clarification). Generic and unanswerable questions run unfiltered (product
-    None): common chunks answer the first, the abstention template the second."""
+def _resolve_product(intent: Intent, e: Entities, ctx: PlanContext) -> tuple[str | None, str | None, bool]:
+    """Routing rule 2 → (product, clarification, common_only). Generic and unanswerable questions run
+    unfiltered (product None): the common sections answer the first (common_only: the probe found a confident
+    common chunk among its top hits), the abstention template the second."""
     ids_here = Entities(claim_id=ctx.resolved.claim_id, policy_id=ctx.resolved.policy_id)
     if (ids_here.claim_id or ids_here.policy_id) and (product := ctx.product_of(ids_here)):
-        return product, None
+        return product, None, False
     if ctx.active.product:
-        return ctx.active.product, None
+        return ctx.active.product, None, False
     products = ctx.own_products() if ctx.persona == "customer" else []
     if len(products) == 1:
-        return products[0], None
-    if e.policy_type is not None or ctx.product_probe(intent.sub_question) != "product":
-        return None, None
-    return None, template("clarification_product", product_list=", ".join(products or product_names()))
+        return products[0], None, False
+    if e.policy_type is not None:
+        return None, None, False
+    outcome = ctx.product_probe(intent.sub_question)
+    if outcome != "product":
+        return None, None, outcome == "common"
+    clarification = template("clarification_product", product_list=", ".join(products or product_names()))
+    return None, clarification, False

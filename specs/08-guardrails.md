@@ -68,6 +68,14 @@ answer, so V7 does not run in the request path; the verify trace carries a skipp
 phase on every slice that produces full answers (`insurai.eval.groundedness`). A judge error marks V7 skipped
 ("judge error") and is logged; it never counts as a pass in the eval rates.
 
+**V7 claims are split in code, not by the judge** (2026-10-10). `atomic_claims` splits the answer (fixed system
+sentences, table headers and separators, headings and the reviewer line are not claims); the verbatim pre-check
+settles claims found word for word in the evidence; the rest go to the judge as a numbered list in batches of
+`guardrails.v7.batch_size` (8). The judge returns one verdict per number (`ClaimVerdicts`); a batch missing a
+number (an empty list included) is retried once with the validation error, and a batch that fails again marks
+only its claims as `judge_errors` (noted in the V7 detail, neither supported nor unsupported). When every batch
+fails and nothing settled verbatim, the whole V7 is a judge error.
+
 On failure: one retry of synthesize with `feedback` (which checks failed and why). Second failure → abstain:
 return the evidence summaries plus LOW_CONFIDENCE wording, still cited. V4 failures may be fixed by
 deterministic rewrite to `mandated_wording` before retrying.
@@ -114,13 +122,17 @@ handler sees it; the tool log line also goes through `redact_for_logs`.
   request, after a V4 rewrite, or in the customer specialist-review block. Model-written copies elsewhere are
   stripped deterministically (tests/guardrails/test_m7c_fixes.py).
 - [x] AC-08-19 The V7 splitter skips table headers, separator rows, block headings, the reviewer line and every fixed
-  system sentence (precedence, mandated wording, specialist review, guarantee lead); a judge claim matching one of
-  them is dropped.
+  system sentence (precedence, mandated wording, specialist review, guarantee lead); since AC-08-22 none of them is
+  ever sent to the judge.
 - [x] AC-08-20 Every appended block is idempotent and a repeated paragraph is kept once (CA005 repeated one three
   times); the mandated sentence appears at most once per answer (ADV004 had it twice). The eval auto-approves with
   the neutral note "Reviewed and approved."
 - [x] AC-08-21 The synthesizer and narrative prompts keep the policy wording's qualifiers (normally, may, subject to,
   unless) and never harden them ("normally within 30 days" never becomes "must be submitted within 30 days").
+- [x] AC-08-22 V7 classifies code-split claims: only `atomic_claims` left after the verbatim pre-check reach the
+  judge, numbered, in batches of at most 8; verdicts map back to the split text; an empty or incomplete verdict list
+  is retried once, then the batch's claims are judge_error; no claim left means no judge call
+  (tests/guardrails/test_v7_classify.py; a 20-claim answer makes 3 batches, one failing).
 
 ## Eval hooks
 adversarial slice; V1–V7 pass rates reported for every slice. Built so far: the `guardrails` slice (EVAL029 and

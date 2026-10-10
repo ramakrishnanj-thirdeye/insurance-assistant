@@ -14,6 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
 from insurai.agent import planner as planner_mod
+from insurai.agent import routing
 from insurai.agent.dossier import build_dossier_graph
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
@@ -202,10 +203,8 @@ def _product_of(ctx: Any, e: Entities) -> str | None:
 def _product_probe(ctx: Any, question: str) -> planner_mod.ProbeOutcome:
     """Routing rule 2: one unfiltered search decides if a product-less policy question needs a product."""
     result = TOOLS["search_policy"](ctx, question)
-    chunks = getattr(result, "chunks", None)
-    if not chunks or not getattr(result, "confident", False):
-        return "none"
-    return "common" if chunks[0].chunk.product == "ALL" else "product"
+    s = get_settings()
+    return routing.probe_outcome(result, s.retrieval.rerank_threshold, s.agent.common_probe_top_k)
 
 
 def verify_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -275,11 +274,11 @@ def _v7_judge(
     def judge(answer: str, evidence: list[Evidence]) -> GroundednessVerdict | None:
         start = now_ms()
         try:
-            verdict, call = judge_groundedness(answer, evidence, config)
+            verdict, calls = judge_groundedness(answer, evidence, config)
         except StructuredOutputError:
             log.warning("V7 judge failed on turn %s; V7 skipped", turn)
             return None
-        if call is not None:  # None: the verbatim pre-check settled every claim
+        for call in calls:  # none: the verbatim pre-check settled every claim
             trace.extend(llm_events(call, turn, start))
         return verdict
 

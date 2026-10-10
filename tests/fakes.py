@@ -88,17 +88,35 @@ class ScriptedChatModel(BaseChatModel):
         return self.bind(schema_name=schema.__name__) | RunnableLambda(parse)
 
 
-GROUNDED = {"claims": [], "conflict_rule_followed": None}  # V7 verdict: nothing unsupported
+def judge_claims(messages: list[BaseMessage]) -> list[str]:
+    """The numbered claims of a V7 judge prompt (verify_groundedness.md `<claims>`), in order."""
+    block = re.search(r"<claims>\n(.*?)\n</claims>", str(messages[0].content), re.DOTALL)
+    return [re.sub(r"^\d+\. ", "", line) for line in block.group(1).splitlines()] if block else []
+
+
+def verdicts(
+    supported: Callable[[str], bool] = lambda claim: True, conflict: bool | None = None
+) -> Responder:
+    """A V7 judge responder: one verdict per numbered claim, supported unless `supported(claim)` is False."""
+
+    def reply(messages: list[BaseMessage]) -> dict[str, Any]:
+        claims = judge_claims(messages)
+        return {
+            "verdicts": [{"n": n, "supported": supported(c)} for n, c in enumerate(claims, start=1)],
+            "conflict_rule_followed": conflict,
+        }
+
+    return reply
 
 
 def install(monkeypatch: Any, responses: dict[str, Responder], **kwargs: Any) -> ScriptedChatModel:
     """Route every LLM call (structured and plain) to one scripted model.
 
-    The V7 judge (GroundednessVerdict) answers "all supported" unless the test scripts it: tests run on the
-    settings.yaml profile (api-lite), where guardrails.v7_live is on."""
+    The V7 judge (ClaimVerdicts) marks every numbered claim supported unless the test scripts it: tests run
+    on the settings.yaml profile (api-lite), where guardrails.v7_live is on."""
     from insurai.llm import structured
 
-    responses = {"GroundednessVerdict": lambda messages: GROUNDED, **responses}
+    responses = {"ClaimVerdicts": verdicts(), **responses}
     model = ScriptedChatModel(responses=responses, **kwargs)
     monkeypatch.setattr(structured, "get_model", lambda role: model)
     return model

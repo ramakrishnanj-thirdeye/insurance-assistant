@@ -1,11 +1,13 @@
-"""V7 groundedness (spec 08 Output layer): the judge role with verify_groundedness.md splits the answer into
-atomic claims and marks each supported or not; it also says whether a schedule/wording conflict was
-rendered with the precedence sentence.
+"""V7 groundedness (spec 08 Output layer): the answer is split into atomic claims in code, and the judge
+role with verify_groundedness.md marks each numbered claim supported or not; it also says whether a
+schedule/wording conflict was rendered with the precedence sentence.
 
-A verbatim pre-check runs first: a sentence of the answer (citation labels, markdown and list markers
-removed) whose normalised text appears in the evidence is supported without a judge call. The judge sees the
-settled sentences as "already checked" and judges the rest; when every sentence settles, no judge call is
-made. The verdict carries both kinds of claim (`settled_by`).
+A verbatim pre-check runs first: a claim (citation labels, markdown and list markers removed) whose normalised
+text appears in the evidence is supported without a judge call. The rest go to the judge in batches of
+`v7.batch_size`, numbered 1..k; the judge returns one verdict per number and never splits on its own. A batch
+missing a number is retried once with the validation error; a batch that fails again marks only its claims as
+`judge_errors`. When every batch fails and nothing settled verbatim, `StructuredOutputError` is raised. The
+verdict carries both kinds of claim (`settled_by`).
 
 Runs only on model-written answers to policy_question, coverage_compare and claim_analysis turns. In the
 request path only when `guardrails.v7_live` is on for the llm profile; otherwise in the eval (phase 2).
@@ -17,14 +19,18 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
+from pydantic import model_validator
 
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.schemas import Evidence
 from insurai.agent.synthesize import evidence_blocks
-from insurai.guardrails.schemas import GroundedClaim, GroundednessVerdict
+from insurai.guardrails.schemas import ClaimVerdict, ClaimVerdicts, GroundedClaim, GroundednessVerdict
 from insurai.guardrails.verify import MODEL_WRITTEN_KEYS, strip_labels
-from insurai.llm.structured import LLMCall, structured_call
+from insurai.llm.structured import LLMCall, StructuredOutputError, structured_call
+from insurai.observability import get_logger
 from insurai.tools.messages import guardrails
+
+log = get_logger(__name__)
 
 V7_INTENTS = frozenset({"policy_question", "coverage_compare", "claim_analysis"})
 JUDGE_INSTRUCTION = "Check the answer against the evidence."
@@ -116,35 +122,82 @@ def verbatim_settled(claims: list[str], evidence: list[Evidence]) -> list[str]:
 
 def judge_groundedness(
     answer: str, evidence: list[Evidence], config: RunnableConfig | None = None
-) -> tuple[GroundednessVerdict, LLMCall | None]:
-    """The pre-check, then one structured judge call on what it left (none when it settled everything).
-    Model-written payload text (the dossier narrative) is not evidence."""
+) -> tuple[GroundednessVerdict, list[LLMCall]]:
+    """The pre-check, then one structured judge call per batch of what it left (none when it settled
+    everything). Model-written payload text (the dossier narrative) is not evidence."""
     claims = atomic_claims(answer)
     settled = verbatim_settled(claims, evidence)
     verbatim = [GroundedClaim(text=c, supported=True, settled_by="verbatim") for c in settled]
-    if claims and len(settled) == len(claims):
-        return GroundednessVerdict(claims=verbatim), None
+    to_judge = [c for c in claims if c not in settled]
+    if not to_judge:
+        return GroundednessVerdict(claims=verbatim), []
+    size = int(guardrails()["v7"]["batch_size"])
+    blocks = evidence_blocks(_cleaned(evidence))
+    judged: list[GroundedClaim] = []
+    errors: list[str] = []
+    conflicts: list[bool | None] = []
+    calls: list[LLMCall] = []
+    for k in range(0, len(to_judge), size):
+        batch = to_judge[k : k + size]
+        try:
+            verdicts, call = _judge_batch(batch, blocks, answer, config)
+        except StructuredOutputError:
+            log.warning("V7 judge batch of %d claim(s) failed validation twice; judge_error", len(batch))
+            errors += batch
+            continue
+        calls.append(call)
+        by_n: dict[int, ClaimVerdict] = {}
+        for v in verdicts.verdicts:
+            by_n.setdefault(v.n, v)
+        judged += [
+            GroundedClaim(text=c, supported=by_n[n].supported, evidence_label=by_n[n].evidence_label)
+            for n, c in enumerate(batch, start=1)
+        ]
+        conflicts.append(verdicts.conflict_rule_followed)
+    if errors and not judged and not verbatim:
+        raise StructuredOutputError(f"verify_groundedness: every batch failed ({len(errors)} claim(s))")
+    conflict = False if False in conflicts else (True if True in conflicts else None)
+    return GroundednessVerdict(
+        claims=verbatim + judged, conflict_rule_followed=conflict, judge_errors=errors
+    ), calls
+
+
+def _judge_batch(
+    batch: list[str], blocks: str, answer: str, config: RunnableConfig | None
+) -> tuple[ClaimVerdicts, LLMCall]:
     prompt = load_prompt("verify_groundedness")
-    cleaned = [
+    system = prompt.render(
+        claims="\n".join(f"{n}. {c}" for n, c in enumerate(batch, start=1)),
+        evidence_blocks=blocks,
+        answer=answer,
+    )
+    messages = [SystemMessage(system), HumanMessage(JUDGE_INSTRUCTION)]
+    return structured_call("judge", verdict_schema(len(batch)), messages, prompt.id, prompt.version, config)
+
+
+def verdict_schema(n: int) -> type[ClaimVerdicts]:
+    """`ClaimVerdicts` that fails validation unless every number 1..n has a verdict (an empty list included);
+    numbers outside 1..n and repeats are ignored. Named ClaimVerdicts, so the JSON schema stays the same."""
+
+    class Checked(ClaimVerdicts):
+        @model_validator(mode="after")
+        def _complete(self) -> "Checked":
+            missing = sorted(set(range(1, n + 1)) - {v.n for v in self.verdicts})
+            if missing:
+                raise ValueError(f"give one verdict for each claim 1..{n}; missing {missing}")
+            return self
+
+    Checked.__name__ = Checked.__qualname__ = "ClaimVerdicts"
+    return Checked
+
+
+def _cleaned(evidence: list[Evidence]) -> list[Evidence]:
+    return [
         ev.model_copy(
             update={"payload": {k: v for k, v in ev.payload.items() if k not in MODEL_WRITTEN_KEYS}}
         )
         for ev in evidence
     ]
-    system = prompt.render(
-        fixed_sentences="\n".join(f"- {s}" for s in fixed_sentences()),
-        settled_sentences="\n".join(f"- {s}" for s in settled) or "- (none)",
-        evidence_blocks=evidence_blocks(cleaned),
-        answer=answer,
-    )
-    messages = [SystemMessage(system), HumanMessage(JUDGE_INSTRUCTION)]
-    verdict, call = structured_call("judge", GroundednessVerdict, messages, prompt.id, prompt.version, config)
-    done = {normalise(c) for c in settled}
-    skip = non_claims(
-        answer
-    )  # the judge splits on its own: a header or system sentence it returns is dropped
-    judged = [c for c in verdict.claims if normalise(c.text) not in done and claim_key(c.text) not in skip]
-    return verdict.model_copy(update={"claims": verbatim + judged}), call
 
 
 @lru_cache(maxsize=1)

@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 import pytest
-from fakes import citing_synth, install, plan_of, planner_script
+from fakes import citing_synth, install, plan_of, planner_script, verdicts
 
 from insurai.agent.schemas import Evidence
 from insurai.eval import claim_analysis
@@ -33,29 +33,27 @@ def _ev() -> list[Evidence]:
 def test_AC_08_12_judge_rows_judges_only_V7_intents_and_reports_metrics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    verdicts = [
-        {"claims": [{"text": "a", "supported": True}]},
-        {"claims": [{"text": "b", "supported": False}, {"text": "c", "supported": False}]},
-    ]
-    install(monkeypatch, {"GroundednessVerdict": verdicts})
+    install(monkeypatch, {"ClaimVerdicts": verdicts(lambda claim: claim == "Claim a.")})
     rows = [
-        {"id": "P1", "answer": "x", "intents": ["policy_question"]},
-        {"id": "C1", "answer": "y", "intents": ["claim_analysis", "claim_status"]},
+        {"id": "P1", "answer": "Claim a.", "intents": ["policy_question"]},
+        {"id": "C1", "answer": "Claim b. Claim c.", "intents": ["claim_analysis", "claim_status"]},
         {"id": "S1", "answer": "z", "intents": ["claim_status"]},  # not a V7 intent: never judged
         {"id": "E1", "answer": "", "intents": ["policy_question"]},  # no answer: never judged
     ]
     judge_rows(rows, {r["id"]: _ev() for r in rows})
     assert [r.get("v7_passed") for r in rows] == [True, False, None, None]
-    assert rows[1]["v7_unsupported"] == ["b", "c"]
+    assert rows[1]["v7_unsupported"] == ["Claim b.", "Claim c."]
     assert v7_metrics(rows) == {
         "v7_judged": 2,
         "v7_pass_rate": 0.5,
         "faithfulness": 0.3333,  # 1 of 3 claims supported
+        "faithfulness_judged": 0.3333,
         "v7_verbatim_share": 0.0,
         "v7_claims_total": 3,
         "v7_verbatim_total": 0,
         "v7_unsupported_total": 2,
-        "v7_errors": 0,
+        "v7_excluded_total": 0,
+        "v7_judge_errors": 0,
     }
 
 
@@ -116,7 +114,7 @@ def test_guardrails_slice_end_to_end_scripted(index_path: Any, monkeypatch: pyte
 
     def judge(messages: list[Any]) -> dict[str, Any]:
         order.append("judge")
-        return {"claims": [], "conflict_rule_followed": None}
+        return verdicts()(messages)
 
     plans = planner_script(
         {
@@ -127,12 +125,14 @@ def test_guardrails_slice_end_to_end_scripted(index_path: Any, monkeypatch: pyte
             ),
         }
     )
-    install(monkeypatch, {"Plan": plans, "Text": synth, "GroundednessVerdict": judge})
+    install(monkeypatch, {"Plan": plans, "Text": synth, "ClaimVerdicts": judge})
     m = slice_mod.run_slice()["metrics"]
     assert m["items"] == 3 and m["errors"] == []
     assert m["not_refused"] == 1.0 and m["s15_cited"] == 1.0 and m["mandated_wording"] == 1.0
     assert m["conflict_rendered"] == 1.0 and m["v7_judged"] == 2 and m["v7_pass_rate"] == 1.0
-    assert order == ["generate", "generate", "judge", "judge"]  # GRD001 is a template answer: not judged
+    # GRD001 is a template answer: not judged. The guarantee answers hold only fixed sentences and labels,
+    # so no claim is left to send and the judge is never called (AC-08-22)
+    assert order == ["generate", "generate"]
 
 
 @pytest.mark.integration
@@ -153,14 +153,14 @@ def test_claim_analysis_reports_v7_on_narratives_in_phase_2(
 
     def judge(messages: list[Any]) -> dict[str, Any]:
         seen.append(str(messages[0].content))
-        return {"claims": [{"text": "Position", "supported": True}]}
+        return verdicts()(messages)
 
     install(
         monkeypatch,
         {
             "Text": narrator,
             "InventedFindings": lambda m: {"invented": [], "count": 0},
-            "GroundednessVerdict": judge,
+            "ClaimVerdicts": judge,
         },
     )
     monkeypatch.setattr(claim_analysis, "SOURCES", ("claim_analysis_seed.jsonl",))

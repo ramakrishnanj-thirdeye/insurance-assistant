@@ -144,24 +144,24 @@ def test_AC_08_19_abstention_wording_is_not_a_claim() -> None:
     assert claims == ["Closest clauses: Maternity Protect §9 Exclusions"]  # EVAL032: only the evidence line
 
 
-def test_AC_08_19_judge_claims_on_skipped_lines_are_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fakes import install
+def test_AC_08_19_skipped_lines_are_never_sent_to_the_judge(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fakes import install, judge_claims, verdicts
 
     from insurai.guardrails.groundedness import judge_groundedness
+
+    sent: list[list[str]] = []
+
+    def judge(messages: list[Any]) -> dict[str, Any]:
+        sent.append(judge_claims(messages))
+        return verdicts()(messages)
 
     answer = (
         "| Document Type | Description |\n|---|---|\n| Bills | Hospital bills |\n\n" + precedence_sentence()
     )
-    verdict = {
-        "claims": [
-            {"text": "Document Type | Description", "supported": False},
-            {"text": precedence_sentence(), "supported": False},
-            {"text": "Bills | Hospital bills", "supported": True},
-        ]
-    }
-    install(monkeypatch, {"GroundednessVerdict": lambda m: verdict})
+    install(monkeypatch, {"ClaimVerdicts": judge})
     result, _ = judge_groundedness(answer, [])
-    assert [c.text for c in result.claims] == ["Bills | Hospital bills"]
+    assert sent == [["| Bills | Hospital bills |"]]
+    assert [c.text for c in result.claims] == ["| Bills | Hospital bills |"]
 
 
 # --- AC-08-20 idempotent blocks -----------------------------------------------------------------------------

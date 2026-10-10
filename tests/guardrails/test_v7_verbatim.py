@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any
 
 import pytest
-from fakes import install
+from fakes import install, judge_claims, verdicts
 
 from insurai.agent.schemas import AnswerDraft, Evidence
 from insurai.guardrails.groundedness import atomic_claims, judge_groundedness, normalise, verbatim_settled
@@ -29,14 +29,15 @@ def _ev(text: str = WORDING, label: str = CSP9) -> list[Evidence]:
     ]
 
 
-def _judge_calls(monkeypatch: pytest.MonkeyPatch, verdict: dict[str, Any]) -> list[str]:
-    seen: list[str] = []
+def _judge_calls(monkeypatch: pytest.MonkeyPatch, supported: Any = lambda claim: True) -> list[list[str]]:
+    """Script the judge with `verdicts(supported)`; returns the numbered claims of each call."""
+    seen: list[list[str]] = []
 
     def judge(messages: list[Any]) -> dict[str, Any]:
-        seen.append(str(messages[0].content))
-        return verdict
+        seen.append(judge_claims(messages))
+        return verdicts(supported)(messages)
 
-    install(monkeypatch, {"GroundednessVerdict": judge})
+    install(monkeypatch, {"ClaimVerdicts": judge})
     return seen
 
 
@@ -50,7 +51,7 @@ def test_atomic_claims_split_sentences_and_bullets_without_labels_or_fixed_sente
 
 
 def test_AC_08_15_v7_verbatim_claim_settled_without_judge(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _judge_calls(monkeypatch, {"claims": [{"text": "Racing is not covered", "supported": False}]})
+    seen = _judge_calls(monkeypatch, lambda claim: not claim.startswith("Racing"))
     answer = "\n".join(
         [
             f"Breakdown unrelated to accident is excluded? No: {CSP9}",
@@ -58,30 +59,12 @@ def test_AC_08_15_v7_verbatim_claim_settled_without_judge(monkeypatch: pytest.Mo
             f"Racing is not covered. {CSP9}",
         ]
     )
-    verdict, call = judge_groundedness(answer, _ev())
+    verdict, calls = judge_groundedness(answer, _ev())
     verbatim = [c.text for c in verdict.claims if c.settled_by == "verbatim"]
     assert verbatim == ["Illegal use, racing, breakdown unrelated to accident."]
-    assert call is not None and len(seen) == 1
-    assert "- Illegal use, racing, breakdown unrelated to accident." in seen[0]  # told to skip it
-    assert [c.text for c in verdict.claims if not c.supported] == ["Racing is not covered"]
-
-
-def test_AC_08_15_v7_judge_claims_repeating_a_settled_one_are_dropped(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _judge_calls(
-        monkeypatch,
-        {
-            "claims": [
-                {"text": "illegal use, racing, breakdown unrelated to accident", "supported": True},
-                {"text": "Dental is covered", "supported": False},
-            ]
-        },
-    )
-    verdict, _ = judge_groundedness(
-        f"Illegal use, racing, breakdown unrelated to accident. {CSP9} Dental is covered.", _ev()
-    )
-    assert [(c.settled_by, c.supported) for c in verdict.claims] == [("verbatim", True), ("judge", False)]
+    assert len(calls) == 1
+    assert seen == [["Breakdown unrelated to accident is excluded?", "No:", "Racing is not covered."]]
+    assert [c.text for c in verdict.claims if not c.supported] == ["Racing is not covered."]
 
 
 def test_AC_08_15_v7_short_claims_are_not_settled() -> None:
@@ -94,9 +77,11 @@ def test_AC_08_15_v7_model_written_payload_is_not_evidence() -> None:
 
 
 def test_AC_08_15_v7_all_settled_skips_the_judge(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = _judge_calls(monkeypatch, {"claims": []})
-    verdict, call = judge_groundedness(f"Illegal use, racing, breakdown unrelated to accident. {CSP9}", _ev())
-    assert call is None and seen == []
+    seen = _judge_calls(monkeypatch)
+    verdict, calls = judge_groundedness(
+        f"Illegal use, racing, breakdown unrelated to accident. {CSP9}", _ev()
+    )
+    assert calls == [] and seen == []
     assert len(verdict.claims) == 1 and verdict.claims[0].supported
 
 

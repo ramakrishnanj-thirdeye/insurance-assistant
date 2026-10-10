@@ -63,7 +63,7 @@ def test_AC_11_19_empty_reason_twice_is_a_judge_error_excluded_from_correctness(
 
 
 def test_AC_11_20_guardrails_slice_reports_v7_faithfulness_as_k_of_n() -> None:
-    judged = {"v7_passed": True, "v7_claims": 1, "v7_supported": 1, "v7_unsupported": [], "v7_verbatim": 1}
+    judged = {"v7_passed": True, "v7_claims": 0, "v7_supported": 0, "v7_unsupported": [], "v7_verbatim": 1}
     rows = [{"id": i, "must_refuse": False, "refused": False, **judged} for i in ("G1", "G2")]
     counts: dict[str, list[int]] = {}
     metrics = guardrails_eval.metrics(rows, counts)

@@ -1,4 +1,5 @@
-"""Deterministic intent pruning and promotion (spec 06 routing rules 9 and 10), run by finalize_plan.
+"""Deterministic intent pruning and promotion (spec 06 routing rules 9 and 10), run by finalize_plan, and the
+rule 2 probe outcome.
 
 Trigger lists come from config/glossary.yaml `routing`: each intent's definition words, the config lists it
 names in `from`, and every glossary synonym group sharing a term with them. No LLM, no eval data.
@@ -7,17 +8,23 @@ names in `from`, and every glossary synonym group sharing a term with them. No L
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
 from insurai.agent.resolve import _glossary
 from insurai.agent.schemas import Intent
+from insurai.knowledge.parse import ALL
 from insurai.retrieval.glossary import load_glossary
 from insurai.rules.engine import dossier_config
 from insurai.settings import ROOT
 
 REQUIRED_DOCUMENTS_FILE = ROOT / "config" / "required_documents.yaml"
+
+# Routing rule 2 probe (an unfiltered search_policy): a confident common (ALL) chunk among the top hits
+# needs no product; otherwise a confident product-specific hit needs one; no confident hit is answered
+# with the abstention.
+ProbeOutcome = Literal["common", "product", "none"]
 
 
 @dataclass(frozen=True)
@@ -102,3 +109,17 @@ def dedupe(intents: list[Intent]) -> list[Intent]:
     Run after finalize_plan fills claim IDs; an intent without one is kept."""
     analysed = {i.entities.claim_id for i in intents if i.type == "claim_analysis" and i.entities.claim_id}
     return [i for i in intents if not (i.type == "claim_status" and i.entities.claim_id in analysed)]
+
+
+def probe_outcome(result: Any, threshold: float | None, top_k: int) -> ProbeOutcome:
+    """Rule 2 from the unfiltered probe: "common" when a confident common chunk is among the first `top_k`
+    search hits (rerank score at or above `threshold`, or no score to gate on), "product" when the result is
+    confident otherwise, "none" when it is not confident."""
+    chunks = getattr(result, "chunks", None)
+    if not chunks or not getattr(result, "confident", False):
+        return "none"
+    for hit in [c for c in chunks if c.via == "search"][:top_k]:
+        score = hit.rerank_score
+        if hit.chunk.product == ALL and (threshold is None or score is None or score >= threshold):
+            return "common"
+    return "product"

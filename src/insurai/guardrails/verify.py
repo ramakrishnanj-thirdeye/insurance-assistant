@@ -202,14 +202,16 @@ CONFLICT_NOT_RENDERED = "conflict shown without both values and the precedence s
 
 
 def v7_outcome(verdict: GroundednessVerdict | None) -> tuple[CheckOutcome, list[str]]:
-    """V7 from the judge's verdict: fails on any unsupported claim or an unrendered conflict."""
+    """V7 from the judge's verdict: fails on any unsupported claim or an unrendered conflict; claims of a
+    failed judge batch (judge_errors) are noted in the detail, never failed."""
     if verdict is None:
         return CheckOutcome(check="V7", passed=True, skipped=True, detail="judge error"), []
     unsupported = [c.text for c in verdict.claims if not c.supported]
     problems = [f"{len(unsupported)} unsupported claim(s)"] if unsupported else []
     if verdict.conflict_rule_followed is False:
         problems.append(CONFLICT_NOT_RENDERED)
-    return CheckOutcome(check="V7", passed=not problems, detail="; ".join(problems)), unsupported
+    notes = [f"{len(verdict.judge_errors)} claim(s) not judged"] if verdict.judge_errors else []
+    return CheckOutcome(check="V7", passed=not problems, detail="; ".join(problems + notes)), unsupported
 
 
 def v7_skipped(detail: str) -> CheckOutcome:

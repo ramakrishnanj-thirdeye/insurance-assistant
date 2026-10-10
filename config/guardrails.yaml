@@ -79,6 +79,7 @@ conflict_rendering:               # spec 08 Conflict rendering; deterministic co
 
 v7:                              # spec 08 V7 groundedness
   verbatim_min_words: 4           # a claim this long whose normalised text is verbatim in the evidence is supported without a judge call
+  batch_size: 8                   # numbered claims per judge call; a batch that fails validation twice is judge_error for its claims only
 
 currency:                         # spec 08 currency check: every amount is in rupees (₹, Indian grouping); a hit fails and retries
   forbidden_patterns:             # case-insensitive regexes over the answer with citation labels removed

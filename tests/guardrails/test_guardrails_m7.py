@@ -264,14 +264,13 @@ def test_AC_08_13_local_profile_skips_V7_and_the_trace_says_so(monkeypatch: pyte
 
 
 def test_AC_08_13_api_profile_runs_the_judge_in_the_request_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fakes import install
+    from fakes import install, verdicts
 
     _use_profile(monkeypatch, "api-lite")
-    unsupported = {"claims": [{"text": "Maternity is covered", "supported": False}]}
-    install(monkeypatch, {"GroundednessVerdict": [unsupported]})
+    install(monkeypatch, {"ClaimVerdicts": verdicts(lambda claim: "Maternity is covered" not in claim)})
     update = verify_node(_verify_state("policy_question"), {})  # type: ignore[arg-type]
     assert update["verdict"] == "retry"
-    assert update["verification"].unsupported_claims == ["Maternity is covered"]
+    assert update["verification"].unsupported_claims == ["Maternity is covered."]
     assert any(e.kind == "llm" and e.name == "verify_groundedness" for e in update["trace"])
 
 

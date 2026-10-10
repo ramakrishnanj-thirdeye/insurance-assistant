@@ -27,7 +27,10 @@ def judge_rows(
     answer_key: str = "answer",
     intents_key: str = "intents",
 ) -> None:
-    """Add v7_passed, v7_detail and v7_unsupported to each judged row in place (v7_error on a failure)."""
+    """Add v7_passed, v7_detail and v7_unsupported to each judged row in place, with the claim counts:
+    v7_claims (sent to the judge and judged), v7_supported (of those), v7_verbatim (settled by the
+    pre-check) and v7_excluded (claims of a failed judge batch). A row whose judge failed outright gets
+    v7_judge_error."""
     for row in rows:
         ev = evidence.get(row["id"])
         if ev is None or not row.get(answer_key) or not V7_INTENTS & set(row.get(intents_key) or []):
@@ -36,37 +39,45 @@ def judge_rows(
             verdict, _ = judge_groundedness(row[answer_key], ev)
         except Exception as exc:  # one failing judge call must not sink the slice
             log.exception("V7 judge failed on %s", row["id"])
-            row["v7_error"] = f"{type(exc).__name__}: {exc}"
+            row["v7_judge_error"] = f"{type(exc).__name__}: {exc}"
             continue
         outcome, unsupported = v7_outcome(verdict)
+        judged = [c for c in verdict.claims if c.settled_by == "judge"]
         row |= {
             "v7_passed": outcome.passed,
             "v7_detail": outcome.detail,
             "v7_unsupported": unsupported,
-            "v7_claims": len(verdict.claims),
-            "v7_supported": sum(c.supported for c in verdict.claims),
+            "v7_claims": len(judged),
+            "v7_supported": sum(c.supported for c in judged),
             "v7_verbatim": sum(c.settled_by == "verbatim" for c in verdict.claims),
+            "v7_excluded": len(verdict.judge_errors),
         }
         if unsupported:  # kept for the V7 precision checklist (judge_calibration.md part B)
             row["v7_evidence_text"] = evidence_blocks(_cleaned(ev))[:EVIDENCE_CHARS]
 
 
 def v7_metrics(rows: list[dict[str, Any]], counts: dict[str, list[int]] | None = None) -> dict[str, Any]:
-    """V7 pass rate per answer and faithfulness per atomic claim (spec 11), with counts when `counts` is
-    given; v7_verbatim_total is how many claims the verbatim pre-check settled without the judge."""
+    """V7 pass rate per answer and two faithfulness numbers per atomic claim (spec 11), with counts when
+    `counts` is given. faithfulness (the headline and the target): (verbatim + judge-supported) /
+    (verbatim + judged); faithfulness_judged (the stricter diagnostic): judge-supported / judged. Claims of
+    a failed judge batch are in neither denominator (v7_excluded_total); rows whose judge failed outright
+    are counted in v7_judge_errors."""
     judged = [r for r in rows if "v7_passed" in r]
-    claims = sum(r.get("v7_claims", 0) for r in judged)
+    sent = sum(r.get("v7_claims", 0) for r in judged)
     supported = sum(r.get("v7_supported", 0) for r in judged)
+    verbatim = sum(r.get("v7_verbatim", 0) for r in judged)
     out: dict[str, Any] = {"v7_judged": len(judged)}
     sink: dict[str, list[int]] = counts if counts is not None else {}
     prop(out, sink, "v7_pass_rate", sum(r["v7_passed"] for r in judged), len(judged))
-    prop(out, sink, "faithfulness", supported, claims)
-    prop(out, sink, "v7_verbatim_share", sum(r.get("v7_verbatim", 0) for r in judged), claims)
+    prop(out, sink, "faithfulness", verbatim + supported, verbatim + sent)
+    prop(out, sink, "faithfulness_judged", supported, sent)
+    prop(out, sink, "v7_verbatim_share", verbatim, verbatim + sent)
     return out | {
-        "v7_claims_total": claims,
-        "v7_verbatim_total": sum(r.get("v7_verbatim", 0) for r in judged),
+        "v7_claims_total": verbatim + sent,
+        "v7_verbatim_total": verbatim,
         "v7_unsupported_total": sum(len(r["v7_unsupported"]) for r in judged),
-        "v7_errors": sum("v7_error" in r for r in rows),
+        "v7_excluded_total": sum(r.get("v7_excluded", 0) for r in judged),
+        "v7_judge_errors": sum("v7_judge_error" in r for r in rows),
     }
 
 
