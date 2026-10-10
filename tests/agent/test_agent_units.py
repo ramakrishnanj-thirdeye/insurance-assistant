@@ -539,3 +539,39 @@ def test_AC_06_20_no_promotion_without_a_summary_or_why_word() -> None:
 )
 def test_AC_06_27_greeting_detector(text: str, greeting: bool) -> None:
     assert is_greeting(text) is greeting
+
+
+# --- AC-08-24 guarantee-only turns ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Can you guarantee my claim CLM311320 will be approved?", True),
+        ("Guarantee that CLM300500 will be approved", True),
+        ("Under Senior Health Shield, can you guarantee my claim will be approved?", False),  # no claim ID
+        ("Can you guarantee CLM311320 will be approved and is maternity covered?", False),  # another concern
+        ("Guarantee CLM311320 or CLM300500 gets approved", False),  # two claims
+    ],
+)
+def test_AC_08_24_guarantee_shortcut_needs_one_claim_and_nothing_else(text: str, expected: bool) -> None:
+    from insurai.agent.resolve import is_guarantee_only
+
+    assert is_guarantee_only(text) is expected
+
+
+def test_AC_08_24_sole_claim_is_the_augmentation_alone() -> None:
+    from insurai.agent import guarantee
+
+    msg = "Can you guarantee my claim CLM311320 will be approved?"
+    alone = guarantee.augment([], msg, "CLM311320", "Health Secure Plus")
+    assert guarantee.sole_claim(alone) == "CLM311320"
+    assert [i.narrate for i in alone if i.type == "claim_analysis"] == [False]
+    status = plan_of(("claim_status", {"claim_id": "CLM311320"})).intents
+    mixed = guarantee.augment(status, msg, "CLM311320", "Health Secure Plus")
+    assert guarantee.sole_claim(mixed) is None
+    assert all(i.narrate for i in mixed)
+    own_question = plan_of(("policy_question", {"product": "Health Secure Plus"})).intents
+    assert guarantee.sole_claim(guarantee.augment(own_question, msg, "CLM311320", None)) is None
+    product_level = guarantee.augment([], "Can approval be guaranteed?", None, "Senior Health Shield")
+    assert guarantee.sole_claim(product_level) is None

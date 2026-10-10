@@ -168,6 +168,11 @@ def narrate(state: DossierState, config: RunnableConfig) -> dict[str, Any]:
         return {}
     intent = state["intent"]
     correction = state.get("correction")
+    if not intent.narrate:  # a guarantee-only turn answers from the assessment itself (AC-08-24)
+        return {
+            "evidence": [assessment_evidence(assessment, correction, intent.id)],
+            "trace": [instant("node", "narrative_skipped", state.get("turn", 0), reason="guarantee_only")],
+        }
     start = now_ms()
     text, call, added = narrate_text(assessment, correction, intent.question or intent.sub_question, config)
     assessment = assessment.model_copy(update={"narrative": text})
@@ -183,7 +188,7 @@ def narrate(state: DossierState, config: RunnableConfig) -> dict[str, Any]:
 
 def customer_draft(state: DossierState, config: RunnableConfig) -> dict[str, Any]:
     assessment = state.get("assessment")
-    if assessment is None or assessment.view != "full":
+    if assessment is None or assessment.view != "full" or not state["intent"].narrate:
         return {}
     start = now_ms()
     draft, call = customer_message(tool_context(_payload(state)), assessment, config)

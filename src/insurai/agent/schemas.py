@@ -57,6 +57,10 @@ class Intent(BaseModel):
     pinned_sections: SkipJsonSchema[list[int] | None] = None
     # policy_question routed by rule 2 to the common sections: the search keeps only common (ALL) chunks.
     common_only: SkipJsonSchema[bool] = False
+    # Added by the guarantee augmentation (spec 08), not asked for by the user.
+    added_by: SkipJsonSchema[Literal["guarantee"] | None] = None
+    # claim_analysis only: False on a guarantee-only turn, answered without a narrative (AC-08-24).
+    narrate: SkipJsonSchema[bool] = True
 
 
 class Plan(BaseModel):

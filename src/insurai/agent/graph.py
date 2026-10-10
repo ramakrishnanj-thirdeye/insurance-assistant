@@ -13,12 +13,19 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
+from insurai.agent import guarantee, routing
 from insurai.agent import planner as planner_mod
-from insurai.agent import routing
 from insurai.agent.dossier import build_dossier_graph
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
-from insurai.agent.resolve import fast_path_plan, greeting_plan, is_fast_path, is_greeting, resolve_entities
+from insurai.agent.resolve import (
+    fast_path_plan,
+    greeting_plan,
+    is_fast_path,
+    is_greeting,
+    is_guarantee_only,
+    resolve_entities,
+)
 from insurai.agent.respond import guard_event, respond
 from insurai.agent.schemas import NO_WORKER, AnswerDraft, Entities, Evidence, Plan, Reset, TraceEvent
 from insurai.agent.state import AgentState, worker_payload
@@ -123,10 +130,13 @@ def resolve_context(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     guarantee = bool(state.get("guard") and state["guard"].guarantee_request)  # needs §15 and the dossier
     fast = "refusal" not in update and not guarantee and is_fast_path(text) and resolved.claim_id is not None
     greeting = "refusal" not in update and not guarantee and not fast and is_greeting(text)
+    sole = "refusal" not in update and guarantee and resolved.claim_id is not None and is_guarantee_only(text)
     if fast:
         update |= {"fast_path": True, "plan": fast_path_plan(text, resolved.claim_id)}  # type: ignore[arg-type]
     elif greeting:  # routing rule 1b: the greeting template, no planner call
         update |= {"fast_path": True, "plan": greeting_plan(text)}
+    elif sole:  # AC-08-24: the guarantee augmentation is the whole plan, no planner call
+        update |= {"fast_path": True, "plan": _guarantee_plan(state, config, text, resolved)}
     update["trace"] = [
         guard_event(state),
         event(
@@ -136,14 +146,38 @@ def resolve_context(state: AgentState, config: RunnableConfig) -> dict[str, Any]
             start,
             resolved=resolved.set_fields(),
             active=(state.get("active_entities") or Entities()).set_fields(),
-            fast_path=fast or greeting,
+            fast_path=fast or greeting or sole,
             refused=bool(update.get("refusal")),
         ),
     ]
     if fast or greeting:
         intents = ["claim_status"] if fast else ["greeting"]
         update["trace"].append(instant("intent", "fast_path", turn, intents=intents))
+    elif sole:  # the planner's plan event, so the trace reads the same with or without the planner
+        plan = update["plan"]
+        update["trace"].append(
+            instant(
+                "intent",
+                "plan",
+                turn,
+                raw=[],
+                shortcut="guarantee",
+                guarantee_request=True,
+                guarantee_added=[i.type for i in plan.intents],
+                intents=[
+                    {"id": i.id, "type": i.type, "entities": i.entities.set_fields()} for i in plan.intents
+                ],
+                clarification=None,
+            )
+        )
     return update
+
+
+def _guarantee_plan(state: AgentState, config: RunnableConfig, text: str, resolved: Entities) -> Plan:
+    claim_id = resolved.claim_id
+    product = resolved.product or _product_of(_ctx(state, config), Entities(claim_id=claim_id))
+    intents = guarantee.augment([], text, claim_id, product)
+    return Plan(intents=[i.model_copy(update={"id": f"i{n}"}) for n, i in enumerate(intents, start=1)])
 
 
 def planner(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -321,8 +355,9 @@ def route_resolved(state: AgentState, config: RunnableConfig) -> Any:
         if all(i.type in NO_WORKER for i in state["plan"].intents):
             return "respond"
         return [
-            Send("claim_tools", worker_payload(state, i, _trace_id(state, config)))
+            Send(WORKER_FOR[i.type], worker_payload(state, i, _trace_id(state, config)))
             for i in state["plan"].intents
+            if i.type not in NO_WORKER
         ]
     return "planner"
 
@@ -363,7 +398,7 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
 
     g.add_edge(START, "input_guard")
     g.add_conditional_edges("input_guard", route_guard, ["resolve_context", "respond"])
-    g.add_conditional_edges("resolve_context", route_resolved, ["claim_tools", "planner", "respond"])
+    g.add_conditional_edges("resolve_context", route_resolved, [*WORKERS, "planner", "respond"])
     g.add_conditional_edges("planner", route_plan, [*WORKERS, "respond"])
     for worker in WORKERS:
         g.add_edge(worker, "synthesize")

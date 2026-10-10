@@ -17,6 +17,8 @@ data/*.sqlite-shm
 data/*.json
 data/coverage_draft.yaml
 eval/reports/*
+# make demo-check output (also covered by eval/reports/* above)
+eval/reports/demo_check.json
 !eval/reports/.gitkeep
 !eval/reports/baseline.json
 !eval/reports/baseline.md

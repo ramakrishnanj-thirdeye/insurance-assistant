@@ -137,6 +137,14 @@ handler sees it; the tool log line also goes through `redact_for_logs`.
   `stream_holdback_margin` (8), 35 characters with today's patterns instead of the fixed 64 (the fixed
   hold-back cost about 1.7 s of time to first token on local qwen3:8b; not re-measured); a pattern without a bounded width falls back to `stream_holdback_max`
   (64). A promise still never streams at any chunk boundary (tests/agent/test_progress.py).
+- [x] AC-08-24 A guarantee request whose only concern is one claim (the augmentation's policy_question plus
+  the explain-mode claim_analysis, no other intent) is answered with no generator call: the mandated wording
+  cited to §15, the claim's status, what it still needs (assessment next steps and document checklist, cited)
+  and, for customers, the specialist-review block. Verify still runs. A short message with one claim ID and no
+  other intent keyword (glossary `guarantee_path`) also skips the planner, and the dossier skips its
+  narrative, so "Can you guarantee my claim CLM311320 will be approved?" makes zero LLM calls. A guarantee
+  question mixed with another intent still synthesizes; product-level guarantee questions with no claim keep
+  the planner path (tests/agent/test_guardrails_graph.py, tests/agent/test_agent_units.py).
 
 ## Eval hooks
 adversarial slice; V1–V7 pass rates reported for every slice. Built so far: the `guardrails` slice (EVAL029 and

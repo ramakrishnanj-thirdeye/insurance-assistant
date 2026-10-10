@@ -22,6 +22,13 @@ fast_path:
                           cover, waiting, hospital, network, policy, customer, compare, approved amount, how much,
                           guarantee, and]
 
+# Guarantee shortcut (spec 08, AC-08-24): a guarantee request about exactly one claim ID, at most max_words words,
+# with no fast_path other_intent_keywords except `allowed`, skips the planner. Its plan is the guarantee
+# augmentation alone (explain-mode claim_analysis + pinned §14/§15), answered with no LLM call.
+guarantee_path:
+  max_words: 14
+  allowed: [guarantee]
+
 # Greeting fast path (spec 06 routing rule 1b, AC-06-27): a short message made only of these words, with at least
 # one opener, is answered from the greeting template with no planner call. Any other word sends it to the planner.
 greeting:

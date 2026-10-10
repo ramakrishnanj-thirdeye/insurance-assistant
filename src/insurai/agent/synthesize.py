@@ -1,8 +1,8 @@
 """synthesize (spec 06): answer from evidence only. Deterministic templates when no judgment is needed
-(fast path, a single SQL-fact intent, all-not-found, abstain); the dossier narrative as is for a
-claim-analysis turn (it already streamed from the dossier's narrate node); otherwise one plain-markdown
-generator call with synthesize.md, streamed to the client (spec 09 `token`). Citations are the labels
-found in the text; verify checks the complete text after the node returns.
+(fast path, a single SQL-fact intent, all-not-found, abstain, a guarantee-only turn); the dossier narrative
+as is for a claim-analysis turn (it already streamed from the dossier's narrate node); otherwise one
+plain-markdown generator call with synthesize.md, streamed to the client (spec 09 `token`). Citations are
+the labels found in the text; verify checks the complete text after the node returns.
 """
 
 import html
@@ -13,7 +13,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from insurai.agent.answers import claim_status_text, template_draft
-from insurai.agent.guarantee import NEEDS_INTENTS, ensure_guarantee_answer
+from insurai.agent.guarantee import NEEDS_INTENTS, ensure_guarantee_answer, guarantee_draft, sole_claim
 from insurai.agent.history import window
 from insurai.agent.prompts import load_prompt, template
 from insurai.agent.schemas import ALL_ROWS, AnswerDraft, Evidence, Plan
@@ -127,6 +127,11 @@ def deterministic_draft(state: AgentState, evidence: list[Evidence]) -> AnswerDr
     if state.get("fast_path") and len(evidence) == 1 and evidence[0].kind == "ClaimView":
         text = claim_status_text(evidence[0], last_question(state))
         return AnswerDraft(answer_markdown=text, citations=list(dict.fromkeys(labels_in(text))))
+    guard, plan = state.get("guard"), state.get("plan")
+    if not state.get("attempts") and guard is not None and guard.guarantee_request and plan is not None:
+        claim_id = sole_claim(plan.intents)
+        if claim_id and (draft := guarantee_draft(evidence, claim_id, last_question(state))):
+            return draft  # a guarantee-only turn: no generator call (AC-08-24)
     assessment = state.get("assessment")
     if (
         not state.get("attempts")

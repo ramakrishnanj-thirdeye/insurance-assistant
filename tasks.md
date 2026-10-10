@@ -167,6 +167,7 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Skipped in M8-lite (3-day scope): try Ollama KV-cache quantization (`OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`), then re-measure the GPU/CPU split (`ollama ps`, 36%/64% CPU/GPU on 2026-10-06) and latency (TTFT 9.4 s, total 12.1 s, planner 7.7–8.4 tok/s on the maternity question)
 - [x] Size the DraftGate hold-back to the longest possible guarantee match (max regex width over `no_guarantee.patterns`, plus a margin) instead of the fixed 64 characters; it costs about 1.7 s of TTFT on local qwen3:8b. Now 35 characters (AC-08-23); TTFT not re-measured
 - [x] Review card: show the blockers and next best actions from the review summary, with the counts line (AC-10-13)
+- [x] Deterministic guarantee answers (AC-08-24, 2026-10-10): a guarantee-only claim question skips the planner, the dossier narrative and the synthesizer (zero LLM calls); verify still runs. Mixed turns still synthesize. `make demo-check` 2026-10-10: 14 of 14, guarantee step S04 1.6 s (was 63 s and 49 s), core path 116 s, all steps 202 s
 - [ ] Skipped in M8-lite (3-day scope): fix the pre-existing mypy errors (about 40 on 2026-10-06 across agent, api and eval), then add mypy to `make lint`
 
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice

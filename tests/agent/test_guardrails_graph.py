@@ -7,9 +7,11 @@ from datetime import date
 from typing import Any
 
 import pytest
-from fakes import citing_synth, install, plan_of, planner_script
+from fakes import citing_synth, forbid_llm, install, plan_of, planner_script
 
+from insurai.agent.prompts import template
 from insurai.agent.runner import run_turn
+from insurai.observability.callbacks import LLMCallRecorder
 from insurai.retrieval import search
 from insurai.tools.messages import guardrails, refusal
 from insurai.tools.schemas import ToolContext
@@ -32,7 +34,8 @@ def _verify_events(result: Any) -> list[Any]:
 def test_AC_08_06_guarantee_CLM300500_answers_with_s15_and_needs(
     graph: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    question = "Guarantee that CLM300500 will be approved"
+    # "and" sends it to the planner (a plain "Guarantee that CLM300500 will be approved" skips it, AC-08-24)
+    question = "Guarantee that CLM300500 will be approved and tell me where it stands"
     status_only = plan_of(("claim_status", {"claim_id": "CLM300500"}), question=question)
     install(monkeypatch, {"Plan": planner_script({"guarantee": status_only}), "Text": citing_synth})
     result = run_turn(graph, "t-ac0806", question, "claims_agent")
@@ -198,3 +201,55 @@ def test_AC_08_17_dollar_amount_is_retried_with_the_currency_feedback(
         and "₹500" in result.answer_markdown
         and "$" not in result.answer_markdown
     )
+
+
+GUARANTEE_Q = "Can you guarantee my claim CLM311320 will be approved?"
+DEMO_CUSTOMER = "CUST139920"  # owns CLM311320
+
+
+@pytest.mark.usefixtures("index_path")
+def test_AC_08_24_guarantee_only_turn_answers_with_zero_llm_calls(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forbid_llm(monkeypatch)
+    recorder = LLMCallRecorder()
+    result = run_turn(graph, "t-ac0824", GUARANTEE_Q, "customer", DEMO_CUSTOMER, callbacks=[recorder])
+    assert recorder.calls == [] and not any(e.kind == "llm" for e in result.trace)
+    assert not any(e.kind == "node" and e.name == "planner" for e in result.trace)
+    answer = result.answer_markdown
+    assert answer.startswith(f"I can't promise an outcome. {MANDATED} [All products §15")
+    assert answer.count(MANDATED) == 1
+    assert "Claim CLM311320 is **" in answer and "[claims:CLM311320]" in answer
+    assert "What claim CLM311320 still needs:" in answer
+    assert "[claim_documents:CLM311320]" in answer or "[claims:CLM311320]" in answer
+    plan = next(e for e in result.trace if e.kind == "intent" and e.name == "plan")
+    assert plan.data["shortcut"] == "guarantee"
+    assert [i["type"] for i in plan.data["intents"]] == ["claim_analysis", "policy_question"]
+    assert any(e.name == "narrative_skipped" for e in result.trace)
+    assert any(e.kind == "verify" for e in result.trace) and result.verification_passed
+    assert next(e for e in result.trace if e.kind == "verify").data["outcome"] == "pass"
+    assert next(e for e in result.trace if e.kind == "total").data["llm_written"] is False
+    # CLM311320 needs human review; the block's copy of the mandated wording is dropped (said once)
+    assert template("specialist_review_customer").split(". ")[0] in answer
+
+
+@pytest.mark.usefixtures("index_path")
+def test_AC_08_24_guarantee_mixed_with_another_intent_still_synthesizes(
+    graph: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question = (
+        "Can you guarantee CLM311320 will be approved, and is maternity covered under Health Secure Plus?"
+    )
+    plan = plan_of(("policy_question", {"product": "Health Secure Plus"}), question=question)
+    prompts: list[str] = []
+
+    def text(messages: Any) -> str:
+        prompts.append(str(messages[0].content))
+        return citing_synth(messages)
+
+    install(monkeypatch, {"Plan": [plan], "Text": text})
+    result = run_turn(graph, "t-ac0824-mixed", question, "customer", DEMO_CUSTOMER)
+    planned = next(e for e in result.trace if e.kind == "intent" and e.name == "plan")
+    assert "shortcut" not in planned.data
+    assert any("<evidence" in p for p in prompts), "the synthesizer was not called"
+    assert MANDATED in result.answer_markdown and result.verification_passed

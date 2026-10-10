@@ -7,10 +7,14 @@ needs, and forces explain mode ("approved" in a guarantee question is not a requ
 
 `ensure_guarantee_answer` is the deterministic completion before verify: it leads with the mandated wording
 cited to the §15 chunk that carries it, and appends what the claim still needs when the answer left it out.
+
+`guarantee_draft` answers a guarantee-only turn (`sole_claim`) with no generator call and no narrative
+(AC-08-24): the turn's only concern is the claim, and every sentence of the answer is a template or a fact.
 """
 
 from typing import Any
 
+from insurai.agent.answers import claim_status_text
 from insurai.agent.prompts import template
 from insurai.agent.schemas import AnswerDraft, Entities, Evidence, Intent
 from insurai.guardrails.verify import labels_in, mandated_span
@@ -39,6 +43,7 @@ def augment(intents: list[Intent], message: str, claim_id: str | None, product: 
                 sub_question=message,
                 mode="explain",
                 question=message,
+                added_by="guarantee",
             )
         )
     questions = [k for k, i in enumerate(out) if i.type == "policy_question"]
@@ -53,9 +58,48 @@ def augment(intents: list[Intent], message: str, claim_id: str | None, product: 
                 entities=Entities(product=product),
                 sub_question=message,
                 pinned_sections=pinned,
+                added_by="guarantee",
             )
         )
+    if sole_claim(out):  # the answer is built from the assessment: no narrative to write (AC-08-24)
+        out = [i.model_copy(update={"narrate": False}) if i.type == "claim_analysis" else i for i in out]
     return out
+
+
+def sole_claim(intents: list[Intent]) -> str | None:
+    """The claim of a guarantee-only turn: one explain-mode claim_analysis on a claim, and nothing else but
+    the policy_question the augmentation added. A turn with any other concern is synthesized."""
+    analyses = [i for i in intents if i.type == "claim_analysis"]
+    if len(analyses) != 1 or analyses[0].mode != "explain" or not analyses[0].entities.claim_id:
+        return None
+    others = [i for i in intents if i.type != "claim_analysis"]
+    if not all(i.type == "policy_question" and i.added_by == "guarantee" for i in others):
+        return None
+    return analyses[0].entities.claim_id
+
+
+def guarantee_draft(evidence: list[Evidence], claim_id: str, question: str) -> AnswerDraft | None:
+    """A guarantee-only answer without a generator call (AC-08-24): the mandated wording cited to §15, the
+    claim's status, and what it still needs (the assessment's next steps and the document checklist), each
+    cited. None when the claim's facts or assessment are missing (not found, denied): the usual path
+    answers."""
+    claim = next(
+        (e for e in evidence if e.kind == "ClaimView" and e.payload.get("claim_id") == claim_id), None
+    )
+    assessment = next(
+        (e for e in evidence if e.kind == "ClaimAssessment" and e.payload.get("claim_id") == claim_id), None
+    )
+    if claim is None or assessment is None:
+        return None
+    parts = [template("guarantee_lead", label=s15_label(evidence) or "").rstrip()]
+    parts.append(claim_status_text(claim, question))
+    needs = _needs_lines(evidence, claim_id, "") or [template("guarantee_needs_heading", claim_id=claim_id)]
+    label = str(assessment.payload.get("claim_citation") or "")
+    needs[1:1] = [f"- {step} {label}".rstrip() for step in assessment.payload.get("next_best_actions", [])]
+    if len(needs) > 1:
+        parts.append("\n".join(needs))
+    text = "\n\n".join(parts)
+    return AnswerDraft(answer_markdown=text, citations=labels_in(text))
 
 
 def s15_label(evidence: list[Evidence]) -> str | None:

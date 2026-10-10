@@ -100,9 +100,25 @@ def is_fast_path(text: str) -> bool:
     lowered = text.lower()
     if not any(_word_re(k).search(lowered) for k in cfg["status_keywords"]):
         return False
-    return not any(k in lowered for k in cfg["other_intent_keywords"] if " " in k) and not any(
-        re.search(rf"(?<!\w){re.escape(k)}", lowered) for k in cfg["other_intent_keywords"] if " " not in k
+    return not _other_intent(lowered, cfg["other_intent_keywords"])
+
+
+def _other_intent(lowered: str, keywords: list[str]) -> bool:
+    return any(k in lowered for k in keywords if " " in k) or any(
+        re.search(rf"(?<!\w){re.escape(k)}", lowered) for k in keywords if " " not in k
     )
+
+
+def is_guarantee_only(text: str) -> bool:
+    """AC-08-24: a short guarantee request about exactly one claim ID and nothing else (config
+    `guarantee_path`; the caller has already matched the guarantee patterns)."""
+    cfg = _glossary()["guarantee_path"]
+    if len(find_ids(text).get("claim_id", [])) != 1 or len(re.findall(r"\bCLM\d+", text)) != 1:
+        return False
+    if len(text.split()) > cfg["max_words"]:
+        return False
+    keywords = [k for k in _glossary()["fast_path"]["other_intent_keywords"] if k not in cfg["allowed"]]
+    return not _other_intent(text.lower(), keywords)
 
 
 def is_greeting(text: str) -> bool:
