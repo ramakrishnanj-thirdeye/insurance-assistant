@@ -57,16 +57,21 @@ OCR of real claim documents, any ML fraud model (the score carries no signal, se
 - **coverage grid**: product × diagnosis table (85 rows) derived from config/coverage_matrix.yaml.
 - **dossier**: the ClaimAssessment produced by spec 07, rendered in the UI.
 
-## Demo run-of-show (spec 10 automates it as `make demo-check`)
-1. Customer persona asks for claim status; disambiguates between their claims; follow-up "which documents are missing?"
-2. "What is the maternity waiting period under Health Secure Plus?" → cites §5; open trace.
+## Demo run-of-show (docs/DEMO.md; spec 10 automates it as `make demo-check`)
+Revised 2026-10-10 (M8-lite); the full table with timings and fallbacks is docs/DEMO.md.
+1. Customer (CUST139920): greeting (template, no LLM); status of own claim CLM300210; another customer's claim
+   refused; "Can you guarantee my claim CLM311320 will be approved?" → mandated wording, §15, what the claim
+   still needs, no promise.
+2. Claims agent: "What is the maternity waiting period under Health Secure Plus?" → streams, cites §5; open trace.
 3. "Is drunk driving covered under Motor Protect Comprehensive?" → cites the intoxication exclusion (§9).
-4. Agent persona: "Analyze claim CLM300210" → dossier, interrupt, approve with note.
-5. Customer asks for someone else's claim, then asks for a guaranteed approval → both refused.
-6. Supervisor: "Rejection rate by product in 2025, as a chart" → SQL shown with chart.
-7. Leakage radar, then coverage matrix.
-8. Claude Desktop answers a claim question through the MCP server.
-9. Eval dashboard.
+4. "Analyze claim CLM300210" → review card, approve with note. Optional: "Why is CLM300210 pending?", a summary
+   of the clean claim CLM300423, "Are vet bills for my pet dog covered?" (confidence gate).
+5. Supervisor: "Show the approval rate by line of business as a chart" → SQL shown with chart. Optional: claims
+   paid in full despite a co-pay (20,903).
+6. Claim Dossier page on CLM300210 (approved ₹64,577 against ₹58,119 payable).
+7. Eval dashboard: the calibration story.
+8. Optional: Claude Desktop answers a claim question through the MCP server.
+Leakage radar and coverage matrix are deferred (3-day scope).
 
 ## Milestones → specs
 M0 scaffold · M1 → 01 · M2 → 03, 04 · M3 → 05 · M4 → 06 · M5 → 07 · M6 → 02 · M7 → 08, 11 · M8 → 09, 10.

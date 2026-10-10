@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from fakes import plan_of
 
-from insurai.agent.progress import DraftGate, holdback_chars, plan_summary
+from insurai.agent.progress import DraftGate, holdback_chars, holdback_for, plan_summary
 from insurai.api.streaming import with_heartbeats
 from insurai.observability.progress import emit_progress, status_args
 from insurai.tools.messages import guardrails
@@ -38,6 +38,21 @@ def test_AC_09_13_holdback_covers_the_longest_guarantee_match() -> None:
     assert holdback_chars() >= max(widths)
 
 
+def test_AC_08_23_holdback_is_the_longest_guarantee_match_plus_the_margin() -> None:
+    import re._parser as parser
+
+    cfg = guardrails()["no_guarantee"]
+    longest = max(parser.parse(p, re.IGNORECASE).getwidth()[1] for p in cfg["patterns"])
+    assert holdback_chars() == longest + cfg["stream_holdback_margin"]
+    assert holdback_chars() < 64  # shorter than the old fixed hold-back: earlier first token
+
+
+def test_AC_08_23_unbounded_pattern_falls_back_to_the_cap() -> None:
+    assert holdback_for([r"\bassure you\b", r"guarantee.*approved"], margin=8, cap=64) == 64
+    assert holdback_for([r"\bassure you\b"], margin=8, cap=64) == 18
+    assert holdback_for([r"x{100}"], margin=8, cap=64) == 64
+
+
 @pytest.mark.parametrize("split", range(1, len(SAFE + PROMISE)))
 def test_AC_09_13_promise_never_streams_at_any_chunk_boundary(split: int) -> None:
     text = SAFE + PROMISE
@@ -45,7 +60,7 @@ def test_AC_09_13_promise_never_streams_at_any_chunk_boundary(split: int) -> Non
     streamed = _tokens(events)
     assert "definitely" not in streamed and "will" not in streamed
     assert [name for name, _ in events].count("draft_hidden") == 1
-    assert SAFE.startswith(streamed)
+    assert (SAFE + PROMISE).startswith(streamed)  # safe text before the phrase may stream
 
 
 def test_AC_09_13_promise_streamed_word_by_word_hides_once() -> None:

@@ -85,6 +85,13 @@ def test_local_profile_sets_seed_for_reproducible_evals(monkeypatch: pytest.Monk
         assert isinstance(model, ChatOllama) and model.seed == 42
 
 
+def test_AC_10_16_local_generator_stays_loaded_between_demo_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INSURAI__LLM__PROFILE", "local")
+    for role in ("generator", "small"):
+        model = get_model(role)
+        assert isinstance(model, ChatOllama) and model.keep_alive == "30m"
+
+
 def test_api_profile_keeps_global_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     model = get_model("generator")

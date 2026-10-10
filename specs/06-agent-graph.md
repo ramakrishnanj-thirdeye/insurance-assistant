@@ -69,6 +69,10 @@ Fan-out uses LangGraph `Send` from the planner's conditional edge; workers appen
 
 ## Routing rules
 1. **Fast path**: message matches `\bCLM\d{6}\b` exactly once, contains a status keyword (status, state, where is, update), has ≤ 12 words, and no other intent keyword → Plan with one claim_status intent, no LLM call. Answer from a template (`config/prompts/templates.md`), still verified.
+   1b. **Greeting fast path** (2026-10-10): a message of at most `glossary.greeting.max_words` words, made only of
+   greeting openers and fillers with at least one opener ("Hello", "Thanks!", "Cheers, that helps.") → Plan with one
+   greeting intent, straight to respond, which answers from `template("greeting")`; no planner call. Any digit or
+   other word sends the message to the planner. A guarantee request or a refusal takes precedence.
 2. **Product resolution** for policy_question: explicit product → use it; else active_entities.product (set whenever a claim or policy is resolved: claim → policy → product); else customer persona with exactly one in-force product → that product; several → clarification listing them; agent persona with nothing → clarification "Which product?". Generic questions that apply to all products (e.g. "can approval be guaranteed?") need no product: the planner marks them `policy_type=None, product=None` and retrieval runs unfiltered; common chunks answer them.
    Before asking, one unfiltered `search_policy` probe decides (decided 2026-10-05; top 3 since 2026-10-10,
    EVAL036): a confident common (ALL) chunk anywhere in the probe's top `agent.common_probe_top_k` (3) search hits
@@ -218,6 +222,10 @@ versions, LLM calls (role, model, input/output tokens, latency), total latency.
   common sections (product-specific chunks dropped from the evidence) instead of asking for a product: a
   cashless-versus-settlement question answers from §7 Cashless / Network Process (EVAL036); "What is the waiting
   period?" still asks which product (tests/agent/test_common_sections.py, unit and real index).
+- [x] AC-06-27 Greeting fast path (rule 1b): "Hello" and "Thanks!" are answered with the greeting template, no
+  planner call and no `llm` trace event; the `total` event reads `answered_by: template, llm_written: false`
+  (the total event carries `llm_written` since 2026-10-10). A greeting with a claim ID or a question goes to the
+  planner (tests/agent/test_agent_units.py, test_agent_graph.py).
 - [ ] AC-06-10 Switching `llm.profile` between local and api-lite needs no code change (smoke test per profile, `llm` marker). Local passes (2026-10-05); api-lite skips until an ANTHROPIC_API_KEY exists.
 
 - [~] deferred: 3-day scope — `agent.tool_transport: mcp` (langchain-mcp-adapters binding); `build_graph` raises NotImplementedError for it.

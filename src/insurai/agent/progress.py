@@ -1,11 +1,14 @@
 """Streaming safety and status payloads (spec 09): the per-attempt draft gate and the plan summary.
 
 Never stream a promise: the V4 no-guarantee patterns run on each attempt's accumulated draft. Text is
-released only once it is `stream_holdback_chars` behind the newest token (and on a word boundary), so a
+released only once it is `holdback_chars()` behind the newest token (and on a word boundary), so a
 phrase split across chunks is never partly sent. On a hit the attempt goes quiet and one `draft_hidden`
 event says so; the verified final answer carries the mandated wording. `<think>` blocks never stream.
 """
 
+import re
+import re._parser as parser  # stdlib regex parser: a pattern's maximum match width
+from re._constants import MAXREPEAT
 from typing import Any
 
 from insurai.agent.schemas import Plan
@@ -16,8 +19,16 @@ from insurai.tools.messages import guardrails
 THINK_OPEN, THINK_CLOSE = "<think>", "</think>"
 
 
+def holdback_for(patterns: list[str], margin: int, cap: int) -> int:
+    """The longest possible match over `patterns` plus `margin`; `cap` when a pattern is unbounded."""
+    widths = [parser.parse(p, re.IGNORECASE).getwidth()[1] for p in patterns]
+    longest = max(widths, default=0)
+    return cap if longest >= MAXREPEAT else min(cap, longest + margin)
+
+
 def holdback_chars() -> int:
-    return int(guardrails()["no_guarantee"]["stream_holdback_chars"])
+    cfg = guardrails()["no_guarantee"]
+    return holdback_for(cfg["patterns"], int(cfg["stream_holdback_margin"]), int(cfg["stream_holdback_max"]))
 
 
 def visible_text(text: str) -> tuple[str, bool]:

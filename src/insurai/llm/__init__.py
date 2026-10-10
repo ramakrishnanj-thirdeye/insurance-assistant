@@ -60,4 +60,6 @@ def _provider_kwargs(spec: RoleModel, settings: Settings) -> dict[str, Any]:
         kwargs["reasoning"] = spec.reasoning
     if spec.seed is not None:
         kwargs["seed"] = spec.seed
+    if spec.keep_alive is not None:
+        kwargs["keep_alive"] = spec.keep_alive
     return kwargs

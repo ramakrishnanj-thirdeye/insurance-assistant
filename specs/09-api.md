@@ -19,8 +19,8 @@ A thin, typed, streaming API over the graph and tools, so the UI is swappable an
 | GET | /audit/summary | persona must be supervisor | PortfolioReport counts by rule, flag, product |
 | GET | /audit/claims | ?flag=C1&product=&limit=50 | sample claims for drill-down |
 | POST | /eval/run | {suite: fast|full|ablation} | {run_id} (background task) |
-| GET | /eval/reports | — (claims_agent, supervisor) | list of runs with headline metrics |
-| GET | /eval/reports/{run_id} | — (claims_agent, supervisor) | full report JSON |
+| GET | /eval/reports | — (claims_agent, supervisor) | list of runs with headline metrics: `<suite>_<stamp>`, `slice-<a+b>_<stamp>` and `baseline` (with `baseline_of`) |
+| GET | /eval/reports/{run_id} | — (claims_agent, supervisor) | full report JSON plus `questions` (item id → question text) |
 | GET | /health | — | {warehouse, qdrant, llm_profile, as_of, coverage_status, versions} |
 
 Identity travels as headers on every endpoint: `X-Persona` (required) and `X-Principal-Id` (required for
@@ -83,7 +83,7 @@ Rules:
 → `done`. Errors: `error` {code, message} then `done`.
 
 **Never stream a promise.** Each attempt's accumulated draft is checked against the V4 no-guarantee
-patterns; text is released only `no_guarantee.stream_holdback_chars` (64) behind the newest token, on a
+patterns; text is released only `holdback_chars()` (the longest pattern match plus a margin, AC-08-23) behind the newest token, on a
 word boundary, so a phrase split across chunks is never partly sent. On a hit the attempt stops streaming
 and one `draft_hidden` is sent; `<think>` text never streams (an unclosed block hides the attempt). The
 `final` answer is the verified text (V4 rewrite applied).
@@ -122,4 +122,5 @@ and one `draft_hidden` is sent; `<think>` text never streams (an unclosed block 
 - [x] AC-09-14 A node running longer than `heartbeat_s` gets a `heartbeat` every `heartbeat_s` (beats 1, 2, …, elapsed ≥ beat × interval); a shorter node gets none.
 - [x] AC-09-15 The planner end event carries {intents, product, claim_ids, policy_ids} only; no customer name or customer ID appears in any event before `final`.
 - [x] AC-09-16 `tool_start` precedes its `tool` event and carries only status-safe args; outside a graph run (MCP, scripts) nothing is emitted.
+- [x] AC-09-17 `/eval/reports` also lists `slice-…` reports and `baseline` (with `baseline_of`); `GET /eval/reports/{id}` adds `questions` from eval/datasets for the dashboard's failed-items table; other names stay 404 (tests/api/test_api_threads_data.py).
 - [~] deferred: 3-day scope (needs the spec 11 runner, M7). AC-09-06 `python -m insurai.eval.run --via-api` produces the same metrics as in-process (± judge noise) on the fast suite.

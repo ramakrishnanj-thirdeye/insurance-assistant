@@ -19,7 +19,10 @@ REVIEW = {
     "claim_id": "CLM300210",
     "claim_status": "Approved",
     "needs_human_review": True,
+    "counts": {"findings": 5, "blockers": 2, "needs_review": 1},
+    "blockers": ["The claim date falls outside the policy period."],
     "escalation_reasons": ["Fraud risk score at or above the review threshold"],
+    "next_best_actions": ["Request Claim Form from the customer"],
     "missing_documents": ["Discharge summary"],
     "pending_documents": [],
 }
@@ -154,7 +157,7 @@ def test_AC_10_07_query_param_thread_reopens_conversation_with_last_trace() -> N
     at = _app(FakeApi(), persona="claims_agent", thread="t-agent")
     assert at.session_state["thread_id"] == "t-agent"
     assert "CLM300210 is Approved, not pending." in _texts(at)
-    assert [e.label for e in at.expander] == ["Trace"]
+    assert [e.label for e in at.expander] == ["How this answer was produced", "Engineer details"]
 
 
 def test_AC_10_07_clicking_a_conversation_opens_it() -> None:
@@ -180,6 +183,21 @@ def test_AC_10_03_awaiting_review_thread_shows_card_and_approve_resumes() -> Non
     assert at.session_state["pending_review"] is None
     assert "Reviewer decision: **approve**" in _texts(at)
     assert not at.chat_input[0].disabled
+
+
+def test_AC_10_13_review_card_shows_counts_blockers_and_next_best_actions() -> None:
+    at = _app(FakeApi(), thread="t-review")
+    text = _texts(at)
+    assert "*Blockers*" in text and "- The claim date falls outside the policy period." in text
+    assert "*Next best actions*" in text and "- Request Claim Form from the customer" in text
+    assert any(c.value == "5 findings · 2 blockers · 1 needs review" for c in at.caption)
+
+
+def test_AC_10_14_streamlit_config_skips_email_prompt_and_usage_stats() -> None:
+    import tomllib
+
+    cfg = tomllib.loads((APP.parents[1] / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
+    assert cfg["browser"]["gatherUsageStats"] is False and cfg["server"]["headless"] is True
 
 
 def test_AC_10_03_override_requires_a_note() -> None:

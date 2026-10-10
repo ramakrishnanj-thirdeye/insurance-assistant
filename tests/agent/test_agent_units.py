@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from insurai.agent.graph import MERMAID_FILE, NODES, build_graph, input_guard, mermaid
 from insurai.agent.history import window
 from insurai.agent.planner import PlanContext, finalize_plan
-from insurai.agent.resolve import is_fast_path, is_follow_up, match_product, resolve_entities
+from insurai.agent.resolve import is_fast_path, is_follow_up, is_greeting, match_product, resolve_entities
 from insurai.agent.schemas import AnswerDraft, Entities, Evidence, Plan, Reset, TraceEvent
 from insurai.agent.state import merge_evidence, merge_trace
 from insurai.agent.trace import llm_events
@@ -519,3 +519,23 @@ def test_AC_06_20_no_promotion_without_a_summary_or_why_word() -> None:
         plan_of(("claim_status", {"claim_id": "CLM300210"})), _ctx(message="Is CLM300210 paid?")
     )
     assert _types(final) == ["claim_status"] and final.intents[0].mode is None
+
+
+@pytest.mark.parametrize(
+    ("text", "greeting"),
+    [
+        ("Hello", True),
+        ("hi there!", True),
+        ("Thanks!", True),
+        ("Thank you so much", True),
+        ("Cheers, that helps.", True),
+        ("Good morning team", True),
+        ("Hello, what is the status of CLM300210?", False),
+        ("Thanks, and which documents are missing?", False),
+        ("Hi, is maternity covered?", False),
+        ("ok", False),  # no opener
+        ("", False),
+    ],
+)
+def test_AC_06_27_greeting_detector(text: str, greeting: bool) -> None:
+    assert is_greeting(text) is greeting

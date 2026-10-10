@@ -8,6 +8,8 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from insurai.tools.access import load_personas
+
 WAIT_CAPTION = "Please wait for the answer before switching conversations"
 REVIEW_BADGE = "⏳ review pending"
 DETAIL_MAX = 160
@@ -62,3 +64,30 @@ def compact(data: dict[str, Any], limit: int = DETAIL_MAX) -> str:
 
 def duration_ms(event: dict[str, Any]) -> float:
     return round(float(event.get("end_ms", 0)) - float(event.get("start_ms", 0)), 1)
+
+
+def review_counts(review: dict[str, Any]) -> str | None:
+    """The review card's summary line, e.g. "12 findings · 3 blockers · 2 need review"."""
+    counts = review.get("counts")
+    if not isinstance(counts, dict):
+        return None
+    parts = [
+        f"{counts[key]} {label if counts[key] == 1 else plural}"
+        for key, label, plural in (
+            ("findings", "finding", "findings"),
+            ("blockers", "blocker", "blockers"),
+            ("needs_review", "needs review", "need review"),
+        )
+        if isinstance(counts.get(key), int)
+    ]
+    return " · ".join(parts) or None
+
+
+def page_keys(persona: str) -> list[str]:
+    """Pages per persona: Chat always, Claim Dossier for staff, Eval Dashboard if it may read reports."""
+    keys = ["chat"]
+    if persona in ("claims_agent", "supervisor"):
+        keys.append("dossier")
+    if load_personas()[persona].can_read_eval_reports:
+        keys.append("eval")
+    return keys

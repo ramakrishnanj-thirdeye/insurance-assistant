@@ -43,7 +43,10 @@ no_guarantee:
     - '\b100% (covered|approved)\b'
     - '\bassure you\b'
   mandated_wording: "Final decision depends on complete claim assessment."   # policy wordings §15
-  stream_holdback_chars: 64       # streamed drafts lag this far behind so a promise is never half-sent; ≥ longest pattern match
+  # Streamed drafts lag behind by the longest possible pattern match plus this margin, so a promise is never
+  # half-sent (AC-08-23). A pattern without a bounded width falls back to stream_holdback_max.
+  stream_holdback_margin: 8
+  stream_holdback_max: 64
 
 guarantee_request:                # input check; a hit is answered from the wording, never refused (spec 08 input rule 4)
   patterns:                       # case-insensitive regexes over the masked user message
@@ -102,3 +105,14 @@ refusals:
   GUARANTEE_REQUEST: "I can't promise an outcome. Final decision depends on complete claim assessment, but I can show you what the claim still needs."
   NOT_FOUND: "I couldn't find {entity} in our records. Please check the ID."
   LOW_CONFIDENCE: "The policy documents don't address this directly. The closest clause is shown below; a specialist can confirm."
+
+# Plain names of the verifier checks for the UI trace (spec 10, AC-10-12); ids as in guardrails/verify.py.
+check_names:
+  V1: Citations are real
+  V2: Facts are cited
+  V3: Numbers traced to data
+  V4: No promises
+  V5: No personal data leaked
+  V6: Hidden fields protected
+  CURRENCY: Amounts in rupees
+  V7: Grounded

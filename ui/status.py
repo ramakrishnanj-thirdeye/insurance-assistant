@@ -28,11 +28,25 @@ class Tone(BaseModel):
     badges: dict[str, str]
 
 
+class TraceLabels(BaseModel):
+    """Past-tense step labels for the client-friendly trace view (AC-10-12)."""
+
+    nodes: dict[str, list[str]] = Field(default_factory=dict)
+    entity: list[str] = Field(default_factory=list)
+    intent: list[str] = Field(default_factory=list)
+    tools: dict[str, list[str]] = Field(default_factory=dict)
+    retrieval: list[str] = Field(default_factory=list)
+    llm: dict[str, list[str]] = Field(default_factory=dict)
+    verify: list[str] = Field(default_factory=list)
+    warnings: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class StatusConfig(BaseModel):
     version: int
     default_tone: str
     tones: dict[str, Tone]
     intent_labels: dict[str, str] = Field(default_factory=dict)
+    trace_labels: TraceLabels = Field(default_factory=TraceLabels)
 
 
 @lru_cache(maxsize=1)

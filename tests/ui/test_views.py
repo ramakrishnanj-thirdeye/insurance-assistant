@@ -46,3 +46,12 @@ def test_thread_label_badges_awaiting_review() -> None:
 def test_compact_keeps_scalars_and_truncates() -> None:
     assert compact({"a": 1, "rows": [{"x": 1}], "sql": "SELECT 1"}) == '{"a": 1}'
     assert compact({"a": "x" * 500}, limit=20).endswith("…")
+
+
+def test_AC_10_13_review_counts_line() -> None:
+    from views import review_counts
+
+    assert review_counts({"counts": {"findings": 1, "blockers": 0, "needs_review": 2}}) == (
+        "1 finding · 0 blockers · 2 need review"
+    )
+    assert review_counts({}) is None

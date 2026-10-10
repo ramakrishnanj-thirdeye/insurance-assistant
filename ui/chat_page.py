@@ -10,7 +10,7 @@ import streamlit as st
 from analytics_view import render_analytics
 from status import badge, status_line
 from trace_panel import render_trace
-from views import WAIT_CAPTION, progress_line
+from views import WAIT_CAPTION, progress_line, review_counts
 
 from insurai.api.client import ApiProblem, Event, TurnView
 from insurai.tools.access import load_personas
@@ -132,8 +132,12 @@ def _review_card(review: dict[str, Any]) -> None:
         st.markdown(
             f"**Review needed · {review.get('claim_id', '')}** (status {review.get('claim_status', '?')})"
         )
+        if line := review_counts(review):
+            st.caption(line)
         for title, field in (
+            ("Blockers", "blockers"),
             ("Escalation reasons", "escalation_reasons"),
+            ("Next best actions", "next_best_actions"),
             ("Missing documents", "missing_documents"),
             ("Pending documents", "pending_documents"),
         ):

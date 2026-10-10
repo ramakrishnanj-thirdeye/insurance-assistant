@@ -69,4 +69,5 @@ class EvalReportSummary(BaseModel):
     suite: str
     created_at: str | None
     git_sha: str | None
+    baseline_of: str | None = None  # set on the baseline: the run it was promoted from
     headline: dict[str, dict[str, float | int]]  # slice or config -> scalar metrics

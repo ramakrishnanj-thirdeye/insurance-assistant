@@ -133,6 +133,10 @@ handler sees it; the tool log line also goes through `redact_for_logs`.
   judge, numbered, in batches of at most 8; verdicts map back to the split text; an empty or incomplete verdict list
   is retried once, then the batch's claims are judge_error; no claim left means no judge call
   (tests/guardrails/test_v7_classify.py; a 20-claim answer makes 3 batches, one failing).
+- [x] AC-08-23 The streaming hold-back is the longest possible match over `no_guarantee.patterns` plus
+  `stream_holdback_margin` (8), 35 characters with today's patterns instead of the fixed 64 (the fixed
+  hold-back cost about 1.7 s of time to first token on local qwen3:8b; not re-measured); a pattern without a bounded width falls back to `stream_holdback_max`
+  (64). A promise still never streams at any chunk boundary (tests/agent/test_progress.py).
 
 ## Eval hooks
 adversarial slice; V1–V7 pass rates reported for every slice. Built so far: the `guardrails` slice (EVAL029 and

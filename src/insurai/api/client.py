@@ -1,4 +1,4 @@
-"""Sync client for the spec 09 API, used by the Streamlit UI (spec 10) and later by `make demo-check`.
+"""Sync client for the spec 09 API, used by the Streamlit UI (spec 10) and by `make demo-check`.
 
 Identity travels as X-Persona / X-Principal-Id headers on every call. `chat` and `resume` yield the SSE
 events as (event, data) pairs. A 4xx before the stream opens raises ApiProblem with the problem+json code.
@@ -102,6 +102,21 @@ class ApiClient:
 
     def delete_thread(self, thread_id: str, ident: Identity) -> None:
         self._json("DELETE", f"/threads/{thread_id}", ident)
+
+    def dossier(self, claim_id: str, ident: Identity, narrate: bool = False) -> dict[str, Any]:
+        return self._json("GET", f"/claims/{claim_id}/dossier", ident, params={"narrate": narrate})
+
+    def coverage_matrix(
+        self, ident: Identity, product: str | None = None, attribute: str | None = None
+    ) -> dict[str, Any]:
+        params = {k: v for k, v in (("product", product), ("attribute", attribute)) if v}
+        return self._json("GET", "/coverage-matrix", ident, params=params)
+
+    def eval_reports(self, ident: Identity) -> list[dict[str, Any]]:
+        return self._json("GET", "/eval/reports", ident)
+
+    def eval_report(self, run_id: str, ident: Identity) -> dict[str, Any]:
+        return self._json("GET", f"/eval/reports/{run_id}", ident)
 
     def chat(
         self, message: str, thread_id: str | None, ident: Identity, source: str = "ui"

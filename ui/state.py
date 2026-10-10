@@ -34,6 +34,8 @@ def reset_conversation() -> None:
     st.session_state["thread_id"] = None
     st.session_state["messages"] = []
     st.session_state["pending_review"] = None
+    st.session_state["dossier"] = None  # a dossier loaded under another identity is not shown again
+    st.session_state["dossier_error"] = None
     st.query_params.pop("thread", None)
 
 

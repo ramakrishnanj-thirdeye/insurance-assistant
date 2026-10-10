@@ -45,7 +45,7 @@ def respond(state: AgentState) -> dict[str, Any]:
         turn=state.get("turn", 0),
         start_ms=state.get("turn_started_ms") or now_ms(),
         end_ms=now_ms(),
-        data={"answered_by": answered_by(state)},
+        data={"answered_by": answered_by(state), "llm_written": llm_written(state)},
     )
     guard = state.get("guard")
     blocked = [guard_event(state)] if guard is not None and not guard.allowed else []
@@ -80,6 +80,12 @@ def answered_by(state: AgentState) -> str:
     if plan is not None and plan.clarification:
         return "clarification"
     return "draft" if state.get("draft") else "template"
+
+
+def llm_written(state: AgentState) -> bool:
+    """Whether a language model wrote the answer (false for templates, refusals and deterministic drafts)."""
+    draft = state.get("draft")
+    return bool(draft is not None and draft.llm_written and answered_by(state) == "draft")
 
 
 def final_text(state: AgentState) -> str:

@@ -1,0 +1,6 @@
+# Project Streamlit settings (spec 10, AC-10-14). `make ui` and `make demo` read this file.
+[browser]
+gatherUsageStats = false   # no usage statistics
+
+[server]
+headless = true            # no first-run email prompt and no auto-opened tab; `make demo` opens the browser itself

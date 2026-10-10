@@ -3,7 +3,7 @@
 export PYTHONUTF8 := 1
 
 .PHONY: setup data rules index coverage-draft mcp mcp-smoke api ui phoenix test test-llm test-all lint fmt \
-        eval-fast eval eval-ablation eval-baseline demo-check reset-threads all
+        eval-fast eval eval-ablation eval-baseline demo demo-check reset-threads all
 
 setup:
 	uv sync
@@ -71,7 +71,12 @@ eval-ablation:
 eval-baseline:
 	uv run python -m insurai.eval.baseline --promote-latest
 
+# Demo (docs/DEMO.md): warm the Ollama models with keep_alive, start the API without --reload, then the UI.
+# Ctrl+C stops both. `make demo-check` runs the run-of-show headlessly against the running API.
+demo:
+	uv run python -m insurai.demo
+
 demo-check:
-	uv run python -m insurai.eval.demo_check
+	uv run python -m insurai.eval.demo_check --json eval/reports/demo_check.json
 
 all: setup data index

@@ -74,3 +74,42 @@ intent_labels:
   analytics: analytics
   greeting: greeting
   out_of_scope: out of scope
+
+# Client-friendly trace view (spec 10, AC-10-12): one plain step per trace event, past tense, with the same safe
+# placeholders as the status line ({claim_id}, {policy_id}, {hospital_id}, {product}; {intents} for intent,
+# {n} for counts, {action} for the reviewer's decision). The first alternative whose placeholders all have
+# values is used. Events not listed here (prompt, rule, total) appear only under "Engineer details".
+trace_labels:
+  nodes:
+    input_guard: ["Checked the question for safety"]
+    evaluate_rules: ["Checked the claim against {n} rules", "Checked the claim against the rules"]
+    human_review: ["Recorded the reviewer's decision: {action}", "Recorded the reviewer's decision"]
+    narrative_guard: ["Checked the summary covers every finding"]
+  entity: ["Found the claim, policy and product references"]
+  intent: ["Understood the question: {intents}", "Understood the question"]
+  tools:
+    get_claim: ["Looked up claim {claim_id}", "Looked up the claim"]
+    get_claim_documents: ["Checked the documents of claim {claim_id}", "Checked the claim's documents"]
+    get_claim_interactions: ["Read the interaction history of claim {claim_id}", "Read the claim's interaction history"]
+    get_policy: ["Looked up policy {policy_id}", "Looked up the policy"]
+    get_customer_summary: ["Looked up the customer summary"]
+    check_hospital: ["Checked hospital {hospital_id} against the network", "Checked the hospital against the network"]
+    search_policy: ["Searched the {product} wording", "Searched the policy wording"]
+    get_coverage: ["Read the {product} coverage table", "Read the coverage table"]
+    analyze_claim: ["Assessed claim {claim_id}", "Assessed the claim"]
+    run_analytics: ["Ran the analysis query"]
+  retrieval: ["Ranked {n} policy clauses", "Ranked the policy clauses"]
+  llm:
+    planner: ["Language model planned which records to check"]
+    synthesize: ["Language model drafted the answer"]
+    dossier_narrative: ["Language model wrote the claim summary"]
+    customer_message: ["Language model drafted the customer message"]
+    text_to_sql: ["Language model wrote the analysis query"]
+    verify_groundedness: ["Judge model checked the answer against the evidence"]
+    default: ["Language model call"]
+  verify: ["Checked the answer before showing it"]
+  warnings:
+    false_premise: ["Corrected a wrong assumption in the question"]
+    ctx_near_limit: ["Prompt came close to the model's context limit"]
+    fetch_clauses_failed: ["Could not fetch a cited clause"]
+    default: ["Note recorded"]

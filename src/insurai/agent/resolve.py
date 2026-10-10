@@ -105,6 +105,20 @@ def is_fast_path(text: str) -> bool:
     )
 
 
+def is_greeting(text: str) -> bool:
+    """Routing rule 1b: a short hello or thanks made only of greeting words (config `greeting`)."""
+    cfg = _glossary()["greeting"]
+    words = re.findall(r"[a-z]+", text.lower())
+    if not words or len(words) > cfg["max_words"] or re.search(r"\d", text):
+        return False
+    openers, fillers = set(cfg["openers"]), set(cfg["fillers"])
+    return any(w in openers for w in words) and all(w in openers or w in fillers for w in words)
+
+
+def greeting_plan(text: str) -> Plan:
+    return Plan(intents=[Intent(id="i1", type="greeting", sub_question=text.strip())])
+
+
 def fast_path_plan(text: str, claim_id: str) -> Plan:
     return Plan(
         intents=[

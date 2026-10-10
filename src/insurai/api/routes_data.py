@@ -12,6 +12,7 @@ from insurai.agent.prompts import PROMPTS_DIR, load_prompt
 from insurai.api.identity import Identity, ensure_matches, identity
 from insurai.api.problems import ApiError
 from insurai.api.schemas import EvalReportSummary, Health
+from insurai.eval.datasets import question_index
 from insurai.knowledge import coverage
 from insurai.observability import get_logger
 from insurai.retrieval import search
@@ -27,7 +28,8 @@ log = get_logger(__name__)
 router = APIRouter(tags=["data"])
 Ident = Annotated[Identity, Depends(identity)]
 
-RUN_ID = re.compile(r"^[a-z]+_\d{8}T\d{6}Z$")  # write_report names: <suite>_<UTC stamp>
+# write_report names: <suite>_<UTC stamp> or slice-<a+b>_<UTC stamp>; plus baseline.json (make eval-baseline)
+RUN_ID = re.compile(r"^(?:[a-z]+|slice-[a-z0-9_+]+)_\d{8}T\d{6}Z$|^baseline$")
 PACKAGES = ("insurai", "langgraph", "langchain-core", "fastapi", "qdrant-client", "duckdb")
 
 
@@ -173,6 +175,7 @@ def eval_reports(ident: EvalReader) -> list[EvalReportSummary]:
                 suite=str(report.get("suite", path.stem.split("_")[0])),
                 created_at=report.get("created_at"),
                 git_sha=report.get("git_sha"),
+                baseline_of=report.get("baseline_of"),
                 headline=_headline(report),
             )
         )
@@ -181,4 +184,14 @@ def eval_reports(ident: EvalReader) -> list[EvalReportSummary]:
 
 @router.get("/eval/reports/{run_id}")
 def eval_report(run_id: str, ident: EvalReader) -> dict[str, Any]:
-    return _load_report(run_id)
+    """The raw report plus `questions` (item id -> question text) for the dashboard's failed-items table."""
+    report = _load_report(run_id)
+    ids = {
+        str(item["id"])
+        for body in (report.get("slices") or {}).values()
+        if isinstance(body, dict)
+        for item in body.get("items", [])
+        if isinstance(item, dict) and "id" in item
+    }
+    index = question_index()
+    return report | {"questions": {i: index[i] for i in sorted(ids) if i in index}}

@@ -144,32 +144,33 @@ Tick boxes as work lands. Each milestone ends with its gate; do not start the ne
 - [ ] Routing follow-up (2026-10-06, after the streaming pass): MT006 lost policy_id POL218917 on the customer's "What is my waiting period?" (entity_exact 0.9853, same as the 2026-10-05 measurement in spec 06). routing.intent_accuracy 0.9118 is unchanged and still below the 0.95 gate
 - [x] Streaming synthesis pass (specs 06, 09, 10; 2026-10-06): plain-markdown synthesize with regex citations; `token`, `draft_hidden`, `heartbeat` and `tool_start` SSE events; never streams a promise or `<think>`; verified badge; status line from `config/ui_status.yaml` with tone; prompt hygiene over every prompt file (fixed golden-ID leaks in synthesize.md and templates.md, a golden phrase in planner.md)
 - Recorded 2026-10-05: the busy lock is in-process, so `make api` must run a single uvicorn worker; production needs a database- or Redis-level lock (spec 09 Behaviour)
-- [ ] Five Streamlit pages; Trace panel; review card (Chat page, minimal trace and review card done in M4)
-- [ ] Issue: Chat page leftovers for M8: Claim Dossier, Coverage Matrix, Leakage Radar and Eval Dashboard pages; citation chips with clause expanders; Altair charts for analytics; full AC-10-02 trace fields; blockers and next actions on the review card (the interrupt summary now carries counts, blockers, escalation reasons and next best actions; the card must show them)
-- [ ] `make demo-check`; rehearse the run-of-show
-- [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3)
+- [~] Streamlit pages (M8-lite, 2026-10-10): Chat, Claim Dossier (AC-10-10) and Eval Dashboard (AC-10-11) done, shown per persona; full trace panel (AC-10-02, AC-10-12); review card (AC-10-13)
+- [ ] Issue: deferred (3-day scope): Coverage Matrix and Leakage Radar pages (AC-10-01, AC-10-04; Leakage Radar also needs /audit/*, AC-09-04); citation chips with clause expanders on the Chat page (the trace lists the retrieved clauses; the Dossier page expands its cited clauses)
+- [x] `make demo-check` (AC-10-15) and `make demo` (AC-10-16); run-of-show in docs/DEMO.md. 14 of 14 twice on the local profile, 2026-10-10: core path 183 s and 163 s of model time, all steps 270 s and 249 s (AC-10-05). Still to do: a live rehearsal with the audience timing (AC-10-06, api-lite)
+- [ ] Claude Desktop manual check with the README config (AC-05-09, moved from M3). The README now has the config for this machine; the check itself is manual
 - [x] Thread list, rename and delete endpoints (spec 09, 2026-10-05)
 - [x] Conversations sidebar (spec 10, 2026-10-06)
 
 ### M8 polish list
-- [ ] Greeting fast path: deterministic answers to hello and thanks, with no LLM call
-- [ ] UI: show `answered_by: "draft"` as "template (no LLM)"
-- [ ] Client-friendly trace view with plain labels; keep the raw JSON in an "engineer details" expander
-- [ ] Named verifier checks, with the detail shown on failure: V1 Citations are real, V2 Facts are cited, V3 Numbers traced to data, V4 No promises
-- [ ] Project `.streamlit/config.toml` that skips the first-run email prompt and turns off usage stats (`browser.gatherUsageStats = false`)
-- [ ] Demo-machine checklist:
+- [x] Greeting fast path: deterministic answers to hello and thanks, with no LLM call (spec 06 rule 1b, AC-06-27)
+- [x] UI: "Answered by: template (no LLM)" unless a model wrote the answer (`llm_written` on the total trace event; AC-10-12)
+- [x] Client-friendly trace view with plain labels (`trace_labels` in config/ui_status.yaml); raw events and JSON in an "Engineer details" expander (AC-10-12)
+- [x] Named verifier checks, with the detail shown on failure: V1 Citations are real, V2 Facts are cited, V3 Numbers traced to data, V4 No promises, V5 No personal data leaked, V6 Hidden fields protected, V7 Grounded ("skipped (eval only)" on the local profile), CURRENCY Amounts in rupees (`check_names` in config/guardrails.yaml; AC-10-12)
+- [x] Project `.streamlit/config.toml` that skips the first-run email prompt (`server.headless = true`) and turns off usage stats (`browser.gatherUsageStats = false`) (AC-10-14)
+- [x] Demo-machine checklist (now in docs/DEMO.md; `make demo` runs the API without `--reload` and warms Ollama with `keep_alive: 30m`):
   - Run the API without `--reload`
   - Ollama `keep_alive` set, plus a warm-up request before the demo
   - Check the GPU/CPU split (`ollama ps`) at `num_ctx` 8192
   - Windows power mode Best performance, laptop plugged in
   - `powercfg` power-throttling exemptions for Python and Ollama
   - Port 8000 cleanup if a stale API holds it: `Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess`, then `Stop-Process -Id <pid>` (Git Bash: `netstat -ano | findstr :8000`, then `taskkill /PID <pid> /F`)
-- [ ] Try Ollama KV-cache quantization (`OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`), then re-measure the GPU/CPU split (`ollama ps`, 36%/64% CPU/GPU on 2026-10-06) and latency (TTFT 9.4 s, total 12.1 s, planner 7.7–8.4 tok/s on the maternity question)
-- [ ] Size the DraftGate hold-back to the longest possible guarantee match (max regex width over `no_guarantee.patterns`, plus a margin) instead of the fixed 64 characters; it costs about 1.7 s of TTFT on local qwen3:8b
-- [ ] Review card: show the blockers and next best actions from the review summary (the interrupt payload carries counts, blockers, escalation reasons and next best actions since spec 07)
-- [ ] Fix the pre-existing mypy errors (about 40 on 2026-10-06 across agent, api and eval), then add mypy to `make lint`
+- [ ] Skipped in M8-lite (3-day scope): try Ollama KV-cache quantization (`OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`), then re-measure the GPU/CPU split (`ollama ps`, 36%/64% CPU/GPU on 2026-10-06) and latency (TTFT 9.4 s, total 12.1 s, planner 7.7–8.4 tok/s on the maternity question)
+- [x] Size the DraftGate hold-back to the longest possible guarantee match (max regex width over `no_guarantee.patterns`, plus a margin) instead of the fixed 64 characters; it costs about 1.7 s of TTFT on local qwen3:8b. Now 35 characters (AC-08-23); TTFT not re-measured
+- [x] Review card: show the blockers and next best actions from the review summary, with the counts line (AC-10-13)
+- [ ] Skipped in M8-lite (3-day scope): fix the pre-existing mypy errors (about 40 on 2026-10-06 across agent, api and eval), then add mypy to `make lint`
 
 - **Gate:** AC-09-*, AC-10-*, AC-09-10, AC-09-11, AC-10-07, AC-11-08; demo-check passes twice
+  - M8-lite status 2026-10-10: demo-check passed twice (AC-10-05); AC-09-17 and AC-10-02, 10–16 met; AC-10-01 and AC-10-04 deferred (pages not built); AC-10-06 (timed rehearsal on api-lite) and AC-05-09 (Claude Desktop) are manual and open. No eval run in this milestone; the agent change (greeting fast path, AC-06-27) is covered by unit and graph tests. MT009 ("Thanks!") now routes to greeting without the planner
 
 ## Open decisions (defaults applied; change here if the business decides otherwise)
 - [ ] #1 LLM profile: api-lite (ADR-006)

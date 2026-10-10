@@ -22,6 +22,13 @@ fast_path:
                           cover, waiting, hospital, network, policy, customer, compare, approved amount, how much,
                           guarantee, and]
 
+# Greeting fast path (spec 06 routing rule 1b, AC-06-27): a short message made only of these words, with at least
+# one opener, is answered from the greeting template with no planner call. Any other word sends it to the planner.
+greeting:
+  max_words: 6
+  openers: [hi, hello, hey, namaste, thanks, thank, thx, cheers, bye, goodbye, morning, afternoon, evening]
+  fillers: [you, good, ok, okay, great, so, much, very, a, lot, that, helps, there, team, all]
+
 # Intent pruning and promotion (spec 06 routing rules 9 and 10), applied by finalize_plan after the planner.
 # Each list is built from the intent's definition in config/prompts/planner.md (`words`), never from eval
 # questions, plus the config lists named in `from`, plus every glossary synonym group that shares a term with

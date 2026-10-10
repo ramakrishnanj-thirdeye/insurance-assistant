@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from fakes import citing_synth, forbid_llm, history_turns, install, plan_of, planner_script
 
-from insurai.agent.prompts import load_prompt
+from insurai.agent.prompts import load_prompt, template
 from insurai.agent.runner import NoPendingReview, ReviewPending, resume, run_turn
 from insurai.guardrails.verify import number_tokens, verify
 from insurai.observability.callbacks import LLMCallRecorder
@@ -53,6 +53,20 @@ def test_AC_06_05_fast_path_zero_llm_calls(graph: Any, monkeypatch: pytest.Monke
     assert recorder.calls == []
     assert result.verification_passed is True
     assert "CLM300210" in result.answer_markdown and result.citations == ["[claims:CLM300210]"]
+
+
+@pytest.mark.parametrize("text", ["Hello", "Thanks!"])
+def test_AC_06_27_greeting_answered_from_template_without_llm(
+    graph: Any, monkeypatch: pytest.MonkeyPatch, text: str
+) -> None:
+    forbid_llm(monkeypatch)
+    recorder = LLMCallRecorder()
+    result = run_turn(graph, f"t-ac27-{text}", text, "customer", principal_id=OWNER, callbacks=[recorder])
+    assert recorder.calls == []
+    assert result.answer_markdown == template("greeting")
+    assert not any(e.kind == "llm" for e in result.trace)
+    total = next(e for e in result.trace if e.kind == "total")
+    assert total.data == {"answered_by": "template", "llm_written": False}
 
 
 def test_AC_06_08_unknown_claim_not_found_no_invented_numbers(

@@ -66,3 +66,24 @@ def test_rename_and_delete_through_client(client: Any) -> None:
     assert api.rename_thread(view.thread_id, "Pending check", AGENT)["title"] == "Pending check"
     api.delete_thread(view.thread_id, AGENT)
     assert api.list_threads(AGENT) == []
+
+
+def test_AC_10_10_client_reads_the_dossier_for_staff_and_refuses_another_customer(client: Any) -> None:
+    api = ApiClient(client)
+    dossier = api.dossier("CLM300210", AGENT)
+    assert dossier["claim_id"] == "CLM300210" and dossier["rules"] and dossier["checklist"]["missing"]
+    assert dossier["narrative"] is None  # narrate=false by default
+    with pytest.raises(ApiProblem) as exc:
+        api.dossier("CLM300210", OTHER)
+    assert exc.value.status == 403
+
+
+def test_AC_10_11_client_lists_eval_reports_for_staff_only(client: Any) -> None:
+    api = ApiClient(client)
+    reports = api.eval_reports(AGENT)
+    assert isinstance(reports, list)
+    if reports:
+        assert "questions" in api.eval_report(reports[0]["run_id"], AGENT)
+    with pytest.raises(ApiProblem) as exc:
+        api.eval_reports(OWNER)
+    assert exc.value.status == 403

@@ -54,6 +54,9 @@ class RoleModel(_Section):
     reasoning: bool | None = None  # Ollama thinking switch (False turns Qwen3 thinking off)
     request_timeout_s: float | None = None  # overrides llm.request_timeout_s for this role
     seed: int | None = None  # Ollama sampling seed, so local eval runs are reproducible
+    keep_alive: str | None = (
+        None  # Ollama: how long the model stays loaded after a call, e.g. "30m" (make demo)
+    )
 
 
 class LLMSettings(_Section):

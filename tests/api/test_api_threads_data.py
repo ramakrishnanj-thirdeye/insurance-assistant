@@ -1,5 +1,6 @@
 """/threads, /health, /coverage-matrix, /claims/{id}/dossier and /eval/reports (spec 09)."""
 
+import json
 import sqlite3
 import time
 from contextlib import closing
@@ -151,6 +152,39 @@ def test_eval_reports_list_and_detail(
     assert listed[0]["headline"] == {"routing": {"items": 68, "intent_accuracy": 0.8971}}
     assert client.get("/eval/reports/fast_20261005T035526Z", headers=SUPERVISOR).json()["git_sha"] == "abc"
     for bad in ("notes", "..%2Fsettings", "fast_20261005T000000Z"):
+        assert client.get(f"/eval/reports/{bad}", headers=AGENT).status_code == 404
+
+
+def test_AC_09_17_slice_and_baseline_reports_listed_and_detail_carries_questions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from insurai.settings import get_settings
+
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    slice_id = "slice-claim_analysis+policy_clauses_e2e_20261010T011212Z"
+    body = {
+        "suite": "slice-claim_analysis+policy_clauses_e2e",
+        "created_at": "2026-10-10T01:12:12+00:00",
+        "git_sha": "def",
+        "slices": {"policy_clauses_e2e": {"metrics": {"correctness": 0.9}, "items": [{"id": "EVAL036"}]}},
+    }
+    (reports / f"{slice_id}.json").write_text(json.dumps(body), encoding="utf-8")
+    baseline = body | {
+        "suite": "full",
+        "created_at": "2026-10-09T06:01:20+00:00",
+        "baseline_of": "full_x.json",
+    }
+    (reports / "baseline.json").write_text(json.dumps(baseline), encoding="utf-8")
+    monkeypatch.setattr(get_settings().paths, "eval_reports", reports)
+
+    listed = client.get("/eval/reports", headers=AGENT).json()
+    assert [r["run_id"] for r in listed] == [slice_id, "baseline"]
+    assert listed[1]["baseline_of"] == "full_x.json"
+    detail = client.get(f"/eval/reports/{slice_id}", headers=SUPERVISOR).json()
+    assert detail["questions"]["EVAL036"]  # the question text from eval/datasets
+    assert client.get("/eval/reports/baseline", headers=AGENT).json()["suite"] == "full"
+    for bad in ("slice-..%2Fx_20261010T011212Z", "baseline2"):
         assert client.get(f"/eval/reports/{bad}", headers=AGENT).status_code == 404
 
 
