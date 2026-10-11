@@ -172,4 +172,6 @@ def test_customer_analytics_turn_is_refused(graph: Any, monkeypatch: pytest.Monk
     question = "What is the approval rate across all customers?"
     install(monkeypatch, {"Plan": [plan_of(("analytics", {}), question=question)]})
     result = run_turn(graph, "t-ana-customer", question, "customer", principal_id="CUST139920")
-    assert "own account" in result.answer_markdown and result.analytics is None
+    # a tool the persona lacks gets the tool-level text, not the row-ownership text (AC-05-10)
+    assert "That tool is available to claims agents and supervisors only." in result.answer_markdown
+    assert "own account" not in result.answer_markdown and result.analytics is None

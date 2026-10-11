@@ -100,6 +100,8 @@ sql_citation_format: '[{table}:{key}]'                          # e.g. [claims:C
 
 refusals:
   ACCESS_DENIED: "I can only share details of policies and claims linked to your own account."
+  # A persona calling a tool it is not given (personas.yaml `tools`); {roles} from the personas' label_plural.
+  TOOL_DENIED: "That tool is available to {roles} only."
   OUT_OF_SCOPE: "I can help with policies, claims, claim documents and network hospitals. That request is outside what I can help with here."
   INJECTION: "I can't follow that instruction. Ask me about a policy, a claim or a hospital and I'll help."
   GUARANTEE_REQUEST: "I can't promise an outcome. Final decision depends on complete claim assessment, but I can show you what the claim still needs."

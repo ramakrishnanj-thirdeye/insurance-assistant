@@ -45,7 +45,7 @@ def tool[**P, R: BaseModel](fn: Callable[P, R]) -> Callable[P, R]:
         emit_progress("tool_start", {"name": name, "args_redacted": status_args(safe_args)})
         with tool_span(name, attributes) as span:
             start = time.perf_counter()
-            result = fn(*args, **kwargs) if access.tool_allowed(ctx, name) else access.denied()
+            result = fn(*args, **kwargs) if access.tool_allowed(ctx, name) else access.tool_denied(name)
             ms = round((time.perf_counter() - start) * 1000, 1)
             size = len(result.model_dump_json())
             kind = str(getattr(result, "kind", "ok"))

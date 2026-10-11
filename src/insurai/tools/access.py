@@ -23,6 +23,7 @@ class PersonaConfig(BaseModel):
     row_scope: Literal["own_customer", "all"]
     hidden_columns: list[str]
     tools: list[str]
+    label_plural: str  # "supervisors": names the personas a tool is available to (TOOL_DENIED)
     can_resume_review: bool = False
     can_read_eval_reports: bool = False
     analyze_claim_view: Literal["full", "customer"] = "full"  # spec 07 Behaviour 8
@@ -64,3 +65,10 @@ def visible(ctx: ToolContext, row: dict[str, Any]) -> dict[str, Any]:
 
 def denied() -> AccessDenied:
     return AccessDenied(message=refusal("ACCESS_DENIED"))
+
+
+def tool_denied(tool: str) -> AccessDenied:
+    """A persona calling a tool it is not given: names who has the tool, not the row-ownership text."""
+    labels = [cfg.label_plural for cfg in load_personas().values() if tool in cfg.tools]
+    roles = " and ".join([", ".join(labels[:-1]), labels[-1]] if len(labels) > 1 else labels) or "no one"
+    return AccessDenied(message=refusal("TOOL_DENIED").format(roles=roles))

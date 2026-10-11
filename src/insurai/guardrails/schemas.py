@@ -6,7 +6,13 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 
 RefusalCode = Literal[
-    "ACCESS_DENIED", "OUT_OF_SCOPE", "INJECTION", "GUARANTEE_REQUEST", "NOT_FOUND", "LOW_CONFIDENCE"
+    "ACCESS_DENIED",
+    "TOOL_DENIED",
+    "OUT_OF_SCOPE",
+    "INJECTION",
+    "GUARANTEE_REQUEST",
+    "NOT_FOUND",
+    "LOW_CONFIDENCE",
 ]
 
 

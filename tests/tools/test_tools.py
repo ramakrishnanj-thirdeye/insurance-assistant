@@ -350,3 +350,20 @@ def test_AC_05_01_portfolio_audit_denied_for_agent_and_customer(warehouse: duckd
 def test_AC_05_01_portfolio_audit_unknown_flag_and_product(warehouse: duckdb.DuckDBPyConnection) -> None:
     assert isinstance(TOOLS["portfolio_audit"](make_ctx("supervisor"), flag="C9"), NotFound)
     assert isinstance(TOOLS["portfolio_audit"](make_ctx("supervisor"), product="No Such Plan"), NotFound)
+
+
+def test_AC_05_10_tool_denial_names_who_has_the_tool_not_row_ownership(
+    warehouse: duckdb.DuckDBPyConnection,
+) -> None:
+    from insurai.tools.messages import refusal
+
+    agent = TOOLS["portfolio_audit"](make_ctx())
+    assert isinstance(agent, AccessDenied)
+    assert agent.message == "That tool is available to supervisors only."
+    customer = TOOLS["run_analytics"](make_ctx("customer", KNOWN_OWNER), "count claims by status")
+    assert isinstance(customer, AccessDenied)
+    assert customer.message == "That tool is available to claims agents and supervisors only."
+    assert refusal("ACCESS_DENIED") not in (agent.message, customer.message)
+    # row ownership keeps its own text
+    other = TOOLS["get_claim"](make_ctx("customer", "CUST000000"), KNOWN_CLAIM)
+    assert isinstance(other, AccessDenied) and other.message == refusal("ACCESS_DENIED")

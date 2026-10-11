@@ -2,6 +2,7 @@
 version: 1
 personas:
   customer:
+    label_plural: customers          # tool-denial text (refusals.TOOL_DENIED)
     description: Self-service policyholder; principal_id = customer_id
     row_scope: own_customer        # every query is constrained to rows owned by principal_id
     ownership_paths:               # how ownership is checked; interactions are reached ONLY via their claim
@@ -16,6 +17,7 @@ personas:
     can_resume_review: false
     can_read_eval_reports: false   # GET /eval/reports* (spec 09)
   claims_agent:
+    label_plural: claims agents          # tool-denial text (refusals.TOOL_DENIED)
     description: Operations user handling individual claims
     row_scope: all
     hidden_columns: []
@@ -26,6 +28,7 @@ personas:
     can_resume_review: true
     can_read_eval_reports: true
   supervisor:
+    label_plural: supervisors          # tool-denial text (refusals.TOOL_DENIED)
     description: Claims supervisor and analyst; sees audit and analytics
     row_scope: all
     hidden_columns: []

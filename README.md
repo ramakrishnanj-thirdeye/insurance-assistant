@@ -67,24 +67,41 @@ UI pages:
   history and failed items.
 
 ## Results
-Baseline: the full suite on the local profile (qwen3:8b; judge llama3.1:8b), git 6e6bb10, 2026-10-09
-(`eval/reports/baseline.md`). Counts are "k of n" with 95% Wilson intervals.
+Baseline: the full suite on the local profile (qwen3:8b; judge llama3.1:8b), git 0fe281d, 2026-10-11
+(`eval/reports/baseline.md`, promoted from full_20261011T004013Z). Counts are "k of n" with 95% Wilson
+intervals. The gate passed against the previous baseline; faithfulness is re-baselined on this run (AC-11-23).
 
 | Area | Metric | Result | Target |
 | --- | --- | --- | --- |
-| Policy clauses | recall@5 | 36 of 36 (0.90–1.00), MRR 0.92 | ≥ 0.95 |
-| Retrieval latency | p95 | 144 ms | ≤ 800 ms |
+| Policy clauses | recall@5 | 36 of 36 (0.90–1.00), MRR 0.92, product precision@5 1.0 | ≥ 0.95 |
+| Retrieval latency | p50 / p95 | 92 ms / 123 ms | p95 ≤ 800 ms |
 | SQL facts | accuracy | 20 of 20 (0.84–1.00) | 1.0 |
-| Routing | intent accuracy | 93 of 96 (0.91–0.99); entities 96 of 96 | ≥ 0.95 |
+| Routing | intent accuracy | 94 of 96 (0.93–0.99); entities 96 of 96 (0.96–1.00) | ≥ 0.95 |
 | End to end, SQL facts | gold in answer | 19 of 19 (0.83–1.00) | — |
-| Claim analysis | rule status, documents, consistency, review pause | 10 of 10 each | 1.0 |
-| Claim analysis | blocker mentioned | 36 of 36 | 1.0 |
+| Claim analysis | rule status, documents, consistency, review need, review pause | 10 of 10 each (0.72–1.00) | 1.0 |
+| Claim analysis | blocker mentioned / free of invented findings | 36 of 36 (0.90–1.00) / 10 of 10 (0.72–1.00) | 1.0 |
+| Analytics | unsafe SQL blocked | 31 of 31 (0.89–1.00) | 1.0 |
+| Guardrails | §15 cited / mandated wording / conflict rendered | 2 of 2 / 2 of 2 / 1 of 1 | 1.0 |
 | Adversarial | handled | 15 of 15 (0.80–1.00), every category | ≥ 0.95 |
-| Adversarial | refusal correct / guarantee handled | 7 of 7 / 2 of 2 | 1.0 |
+| Adversarial | refusal correct / guarantee handled | 7 of 7 (0.65–1.00) / 2 of 2 (0.34–1.00) | 1.0 |
 | Whole suite | false refusals | 0 of 44 (0.00–0.08) | ≤ 0.05 |
+| Verifier | V1–V6 and currency pass rate, every answer slice | 1.0 | — |
+| Comparisons | correctness (judge) / citation accuracy | 5 of 5 (0.57–1.00) / 5 of 5 (0.57–1.00) | ≥ 0.90 / ≥ 0.95 |
 | Analytics | execution accuracy | 10 of 15 (0.42–0.85) | ≥ 0.90 (**open**) |
-| Policy answers | correctness (judge) | 31 of 36 (0.71–0.94) | ≥ 0.90 (advisory) |
-| Policy answers | citation accuracy | 33 of 36 (0.78–0.97) | ≥ 0.95 (**open**) |
+| Policy answers | citation accuracy | 34 of 36 (0.82–0.98) | ≥ 0.95 (**open**) |
+| Policy answers | correctness (judge) | 34 of 36 (0.82–0.98) | ≥ 0.90 (advisory) |
+| Claim analysis | correctness (judge) | 5 of 10 (0.24–0.76) | ≥ 0.90 (advisory) |
+
+Faithfulness (V7 in eval mode, advisory while the judge is uncalibrated). The headline counts claims settled
+verbatim plus claims the judge supported; the diagnostic counts only the claims the judge saw.
+
+| Slice | Faithfulness (headline) | Judged claims only | Settled verbatim | Target |
+| --- | --- | --- | --- | --- |
+| Policy answers | 77 of 99 (0.69–0.85) | 75 of 97 (0.68–0.85) | 2 of 99 | ≥ 0.95 (advisory) |
+| Comparisons | 9 of 12 (0.47–0.91) | 9 of 12 (0.47–0.91) | 0 of 12 | ≥ 0.95 (advisory) |
+| Claim analysis | 79 of 83 (0.88–0.98) | 13 of 17 (0.53–0.90) | 66 of 83 | — |
+| Adversarial | 31 of 34 (0.77–0.97) | 8 of 11 (0.43–0.90) | 23 of 34 | — |
+| Guardrails | 6 of 6 (0.61–1.00) | 4 of 4 (0.51–1.00) | 2 of 6 | — |
 
 Retrieval ablation (`make eval-ablation`): product precision@5 rises from 0.69 (dense only) and 0.75 (hybrid)
 to 1.0 once the product filter is on (configs D and E); recall@5 is 1.0 throughout.
@@ -95,9 +112,10 @@ to 1.0 once the product filter is on (configs D and E); recall@5 is 1.0 througho
 - **The judge is uncalibrated.** llama3.1:8b agrees with a human on 6 of 10 answers, below the 80% bar
   (AC-11-06). Correctness and faithfulness are therefore reported as **advisory**, not gated.
   Human-verified correctness on the calibration sample is 8 of 10.
-- **Faithfulness must be re-baselined.** The V7 definition changed on 2026-10-10 (AC-11-23), so the baseline's
-  faithfulness counts are not comparable with new runs.
-- **Policy-answer citation accuracy is 33 of 36**, below 0.95.
+- **Policy-answer faithfulness is 77 of 99 claims (0.69–0.85)**, below 0.95, re-baselined on 2026-10-11 under
+  the AC-11-23 definition. It is advisory: V7 precision on the human-marked sample is 3 of 7 (0.16–0.75), and
+  3 of 4 (0.30–0.95) once the claim splitter keeps table headers and fixed sentences away from the judge.
+- **Policy-answer citation accuracy is 34 of 36 (0.82–0.98)**, below 0.95 (misses EVAL010, EVAL021).
 - **Deferred under the 3-day scope:**
   - the Leakage Radar and Coverage Matrix pages and `/audit/*`
   - the LLM query rewrite and ablation config F

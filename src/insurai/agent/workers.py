@@ -21,7 +21,7 @@ from insurai.settings import get_settings
 from insurai.tools.analytics import AnalyticsRejected, AnalyticsResult
 from insurai.tools.base import redact_args
 from insurai.tools.knowledge import CoverageCells
-from insurai.tools.messages import guardrails, refusal
+from insurai.tools.messages import guardrails
 from insurai.tools.registry import TOOLS
 from insurai.tools.schemas import (
     AccessDenied,
@@ -260,7 +260,7 @@ def to_evidence(intent_id: str, worker: str, result: BaseModel) -> Evidence:
             kind="access_denied",
             payload={},
             sources=[],
-            summary=refusal("ACCESS_DENIED"),
+            summary=result.message,  # row ownership (ACCESS_DENIED) or a tool the persona lacks (TOOL_DENIED)
         )
     if isinstance(result, AnalyticsRejected):
         # No result to cite: answered by the template, without an LLM call (NO_RESULT_KINDS).

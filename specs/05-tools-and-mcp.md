@@ -72,7 +72,8 @@ class AccessDenied(BaseModel): kind: Literal["access_denied"] = "access_denied";
 - [x] AC-05-06 check_hospital alternatives are Network, same city, same specialty, and exclude the hospital itself.
 - [x] AC-05-07 `get_customer_summary(name="Arjun Sharma")` returns a Disambiguation, never a single customer.
 - [~] AC-05-08 `make mcp-smoke`: an MCP client lists all tools with schemas and `get_claim("CLM300210")` over MCP equals the in-process result. (passes for the 8 tools built; re-run when the deferred 3 register)
-- [ ] AC-05-09 Manual: Claude Desktop with the README config answers "What is the status of CLM300210?" through the server. (moved to M8 demo prep)
+- [x] AC-05-09 Manual: Claude Desktop with the README config answers "What is the status of CLM300210?" through the server. (moved to M8 demo prep) Verified 2026-10-11: get_claim answered through the server; portfolio_audit was denied for claims_agent.
+- [x] AC-05-10 A persona calling a tool it is not given gets the tool-level text `refusals.TOOL_DENIED` ("That tool is available to supervisors only.", roles from the personas' `label_plural`), never the row-ownership text; row-ownership denials keep `ACCESS_DENIED` (tests/tools/test_tools.py, tests/agent/test_workers_analytics.py).
 
 ## Eval hooks
 sql_facts slice; tool errors counted in every slice.
