@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from trace_fixtures import POLICY_TRACE
 
 from insurai.agent.prompts import template
 from insurai.api.client import ApiProblem, Event, Identity
@@ -48,7 +49,7 @@ GOOD: dict[str, list[Event]] = {
         *_final(
             "The maternity waiting period is 9 months. [Health Secure Plus §5 Maternity]",
             ["[Health Secure Plus §5 Maternity]"],
-            [_total()],
+            POLICY_TRACE,
         ),
     ],
     "Is drunk driving covered under Motor Protect Comprehensive?": _final(
@@ -123,8 +124,8 @@ def test_AC_10_15_every_step_passes_on_the_expected_shapes_and_threads_are_delet
     assert all(r.passed for r in results), [(r.id, r.reason) for r in results if not r.passed]
     assert ("resume", "t-7", "approve") in fake.calls
     assert all(c[3] == "demo" for c in fake.calls if c[0] == "chat")
-    assert len(fake.deleted) == 12  # one thread per chat step
-    assert "14 of 14 steps passed" in demo_check.summary(results)
+    assert len(fake.deleted) == 13  # one thread per chat step
+    assert "15 of 15 steps passed" in demo_check.summary(results)
 
 
 def test_AC_10_15_a_failing_step_reports_its_reason_and_the_exit_code_is_1(
@@ -168,3 +169,31 @@ def test_AC_10_15_only_selects_steps(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(demo_check.ApiClient, "from_settings", classmethod(lambda cls: fake))
     assert demo_check.main(["--only", "s01,S13"]) == 0
     assert [c[1] for c in fake.calls if c[0] == "chat"] == ["Hello"]
+
+
+def _s15() -> demo_check.DemoStep:
+    return next(s for s in demo_check.STEPS if s.id == "S15")
+
+
+def test_AC_10_17_customer_policy_question_step_renders_the_trace_panel() -> None:
+    fake = FakeApi(GOOD)
+    results = demo_check.run(fake, (_s15(),))  # type: ignore[arg-type]
+    assert results[0].passed, results[0].reason
+    assert fake.calls[0][2] == "customer"
+
+
+def test_AC_10_17_a_trace_the_panel_cannot_render_fails_the_step() -> None:
+    question = "What is the maternity waiting period under Health Secure Plus?"
+    broken = [{"kind": "intent", "name": "plan", "start_ms": 0, "end_ms": 0, "data": ["not", "a", "dict"]}]
+    script = GOOD | {
+        question: [
+            ("token", {"text": "The maternity ", "attempt": 1}),
+            *_final(
+                "The maternity waiting period is 9 months. [Health Secure Plus §5 Maternity]",
+                ["[Health Secure Plus §5 Maternity]"],
+                [*broken, _total()],
+            ),
+        ]
+    }
+    results = demo_check.run(FakeApi(script), (_s15(),))  # type: ignore[arg-type]
+    assert results[0].reason.startswith("trace panel crashed: ")

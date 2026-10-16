@@ -24,6 +24,12 @@ def _safe(data: dict[str, Any]) -> dict[str, str]:
     return status_args({**data, **(data.get("args") or {})})
 
 
+def intent_types(data: dict[str, Any]) -> list[str]:
+    """Intent types of an intent event: {"id", "type", "entities"} rows; plain strings in older traces."""
+    rows = data.get("intents") or []
+    return [str(r.get("type", "")) if isinstance(r, dict) else str(r) for r in rows]
+
+
 def step_label(ev: Event) -> str | None:
     """The plain-language step for one trace event, or None for events shown only to engineers."""
     labels = load_status().trace_labels
@@ -36,7 +42,7 @@ def step_label(ev: Event) -> str | None:
             return fill_first(labels.entity, {})
         case "intent":
             intent_labels = load_status().intent_labels
-            intents = " + ".join(intent_labels.get(i, i.replace("_", " ")) for i in data.get("intents") or [])
+            intents = " + ".join(intent_labels.get(t, t.replace("_", " ")) for t in intent_types(data))
             return fill_first(labels.intent, {"intents": intents})
         case "tool":
             return fill_first(labels.tools.get(name, []), _safe(data))

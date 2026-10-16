@@ -35,7 +35,16 @@ CHECKS = [
 TRACE = [
     _ev("node", "input_guard", 0, 2, allowed=True, code=None, pii_found=[]),
     _ev("entity", "resolve_context", 2, 3, resolved=["claim_id"], fast_path=False),
-    _ev("intent", "plan", 3, 3, intents=["claim_analysis", "policy_question"]),
+    _ev(
+        "intent",
+        "plan",
+        3,
+        3,
+        intents=[
+            {"id": "i1", "type": "claim_analysis", "entities": {"claim_id": "CLM300210"}},
+            {"id": "i2", "type": "policy_question", "entities": {"product": "Health Secure Plus"}},
+        ],
+    ),
     _ev(
         "llm",
         "planner",

@@ -1,7 +1,7 @@
 # Demo run-of-show
 
 About 10 minutes on the core path, plus optional extras when time and interest allow. Every chat step below is
-also a `make demo-check` step (ids S01–S14), so the run-of-show is rehearsed headlessly before each demo.
+also a `make demo-check` step (ids S01–S15), so the run-of-show is rehearsed headlessly before each demo.
 
 **Measured** is the wall time `make demo-check` recorded for the step on the local profile (qwen3:8b on the
 demo laptop, models warm, 2026-10-10, two passes: core path 183 s and 163 s of model time, all 14 steps passed
@@ -12,7 +12,7 @@ both times; after the deterministic guarantee answer, AC-08-24, a third pass: co
 1. Work through the demo-machine checklist at the end of this file.
 2. `make demo`: warms qwen3:8b with `keep_alive: 30m`, starts the API without `--reload`, starts the UI and
    opens http://localhost:8501.
-3. In a second terminal, `make demo-check`: it must report 14 of 14. It deletes its own threads afterwards.
+3. In a second terminal, `make demo-check`: it must report 15 of 15. It deletes its own threads afterwards.
 4. Leave the browser on the Chat page, persona **customer**, customer **CUST139920 · CLM300210 · Approved**.
 
 ## Run-of-show
@@ -33,8 +33,9 @@ both times; after the deterministic guarantee answer, AC-08-24, a third pass: co
 | 12 (S09) | optional | claims_agent | `Give me a summary of claim CLM300423` | A summary of a clean claim: "0 blockers; doesn't need human review", no pause | Explain mode never pauses | 22 s / 21 s | 0:45 | Skip |
 | 13 (S10) | optional | claims_agent | `Are vet bills for my pet dog covered?` | The abstention template "The policy documents don't address this directly …" with the closest clause; no model-written verdict | The confidence gate: low retrieval confidence means no answer is invented | 7 s / 7 s | 0:30 | Skip |
 | 14 (S12) | optional | supervisor | `How many claims were paid in full despite a co-pay?` | 20,903 claims, cited `[sql:…]` | Leakage found with one question | 22 s / 21 s | 0:45 | Skip |
-| 15 | optional | claims_agent | Claim Dossier, **Add narrative** | The narrative, the cited clauses (expanders) and a customer message draft with a copy button | The model writes prose only around deterministic findings | not measured | 1:00 | Skip; the deterministic dossier already tells the story |
-| 16 | optional | Claude Desktop | `What is the status of CLM300210?` with the README MCP config | The same answer through the MCP server | The tools are reusable outside the app (AC-05-09) | manual | 1:00 | Skip |
+| 15 (S15) | optional | customer | `What is the maternity waiting period under Health Secure Plus?` | 24 months, cited `[Health Secure Plus §5 Maternity]`, "✓ verified"; the page stays up | The customer sees the same "How this answer was produced" panel as staff (demo-check renders it headlessly) | not measured | 0:45 | Skip |
+| 16 | optional | claims_agent | Claim Dossier, **Add narrative** | The narrative, the cited clauses (expanders) and a customer message draft with a copy button | The model writes prose only around deterministic findings | not measured | 1:00 | Skip; the deterministic dossier already tells the story |
+| 17 | optional | Claude Desktop | `What is the status of CLM300210?` with the README MCP config | The same answer through the MCP server | The tools are reusable outside the app (AC-05-09) | manual | 1:00 | Skip |
 
 Core path: 10 steps, about 10½ minutes. Optional extras: about 5 minutes.
 
@@ -69,5 +70,5 @@ Core path: 10 steps, about 10½ minutes. Optional extras: about 5 minutes.
       `Stop-Process -Id <pid>`; Git Bash `netstat -ano | findstr :8000`, then `taskkill /PID <pid> /F`.
 - [ ] Stop `make demo`, `make api`, `make mcp` and `make ui` before `make data` or `make index` (Windows locks
       the DuckDB file and the Qdrant store).
-- [ ] `make demo-check` reports 14 of 14, twice.
+- [ ] `make demo-check` reports 15 of 15, twice.
 - [ ] Browser zoom so the trace tables fit; notifications off.

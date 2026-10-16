@@ -151,8 +151,7 @@ def resolve_context(state: AgentState, config: RunnableConfig) -> dict[str, Any]
         ),
     ]
     if fast or greeting:
-        intents = ["claim_status"] if fast else ["greeting"]
-        update["trace"].append(instant("intent", "fast_path", turn, intents=intents))
+        update["trace"].append(instant("intent", "fast_path", turn, intents=intent_rows(update["plan"])))
     elif sole:  # the planner's plan event, so the trace reads the same with or without the planner
         plan = update["plan"]
         update["trace"].append(
@@ -164,13 +163,16 @@ def resolve_context(state: AgentState, config: RunnableConfig) -> dict[str, Any]
                 shortcut="guarantee",
                 guarantee_request=True,
                 guarantee_added=[i.type for i in plan.intents],
-                intents=[
-                    {"id": i.id, "type": i.type, "entities": i.entities.set_fields()} for i in plan.intents
-                ],
+                intents=intent_rows(plan),
                 clarification=None,
             )
         )
     return update
+
+
+def intent_rows(plan: Plan) -> list[dict[str, Any]]:
+    """The one shape of `intents` on every intent trace event (fast path, guarantee and planner)."""
+    return [{"id": i.id, "type": i.type, "entities": i.entities.set_fields()} for i in plan.intents]
 
 
 def _guarantee_plan(state: AgentState, config: RunnableConfig, text: str, resolved: Entities) -> Plan:
@@ -221,9 +223,7 @@ def planner(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
             promoted=pctx.promoted,
             guarantee_request=pctx.guarantee_request,
             guarantee_added=pctx.guarantee_added,
-            intents=[
-                {"id": i.id, "type": i.type, "entities": i.entities.set_fields()} for i in final.intents
-            ],
+            intents=intent_rows(final),
             clarification=final.clarification,
         )
     )

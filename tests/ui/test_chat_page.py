@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from streamlit.testing.v1 import AppTest
+from trace_fixtures import POLICY_TRACE
 from views import REVIEW_BADGE
 
 from insurai.api.client import ApiProblem, Event, Identity
@@ -328,3 +329,25 @@ def test_plain_answer_has_no_analytics_block() -> None:
 
 def _result_tables(at: AppTest) -> list[Any]:
     return [d for d in at.dataframe if list(d.value.columns) == ANALYTICS["columns"]]
+
+
+def test_AC_10_17_customer_policy_question_renders_answer_and_trace_panel() -> None:
+    """Rehearsal bug: a customer's policy question crashed after "✓ verified" while drawing the trace."""
+    fake = FakeApi()
+    answer = "The maternity waiting period is 9 months. [Health Secure Plus §5 Maternity]"
+
+    def chat(message: str, thread_id: str | None, ident: Identity, source: str = "ui") -> Iterator[Event]:
+        assert ident == Identity("customer", "CUST139920")
+        yield "thread", {"thread_id": "t-cust-policy"}
+        yield "token", {"text": answer, "attempt": 1}
+        yield "final", {"answer_markdown": answer, "citations": [], "trace": POLICY_TRACE, "verified": True}
+        yield "done", {}
+
+    fake.chat = chat  # type: ignore[method-assign]
+    at = _app(fake, persona="customer", principal="CUST139920")
+    at.chat_input[0].set_value("What is the maternity waiting period under Health Secure Plus?").run()
+    assert answer in _texts(at)
+    assert any(c.value == "✓ verified" for c in at.caption)
+    assert [e.label for e in at.expander][-2:] == ["How this answer was produced", "Engineer details"]
+    steps = [step for df in at.dataframe if "step" in df.value for step in df.value["step"]]
+    assert "Understood the question: policy question" in steps

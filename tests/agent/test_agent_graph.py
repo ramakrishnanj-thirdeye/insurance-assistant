@@ -165,6 +165,17 @@ def test_AC_06_09_trace_fields_on_fast_path(graph: Any, monkeypatch: pytest.Monk
     assert next(e for e in trace if e.kind == "verify").data["checks"]
 
 
+@pytest.mark.parametrize("question", ["status of CLM300210", "Hello"])
+def test_AC_10_17_fast_path_intent_event_has_the_planner_row_shape(
+    graph: Any, monkeypatch: pytest.MonkeyPatch, question: str
+) -> None:
+    """The UI trace reads {"id", "type", "entities"} rows; the fast paths must write the planner's shape."""
+    forbid_llm(monkeypatch)
+    trace = run_turn(graph, f"t-ac17-{question[:5]}", question, AGENT).trace
+    rows = next(e for e in trace if e.kind == "intent").data["intents"]
+    assert rows and all(isinstance(r, dict) and {"id", "type", "entities"} <= set(r) for r in rows)
+
+
 @pytest.mark.usefixtures("index_path")
 def test_AC_06_03_two_intents_overlapping_worker_spans(graph: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     question = "Status of CLM300500 and is drunk driving covered under Motor Protect Comprehensive?"

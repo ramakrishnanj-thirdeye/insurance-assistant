@@ -1,8 +1,10 @@
 """`make demo-check` (spec 10, AC-10-05, AC-10-15): the docs/DEMO.md run-of-show, headless, via ApiClient.
 
 Each step asks its question as its persona on a fresh thread (source "demo") and checks the response shape:
-citations, refusals, the review pause, the chart spec, template answers. The report lists pass or fail, the
-reason and the seconds per step; the exit code is 1 when any step fails. Demo threads are deleted at the end.
+citations, refusals, the review pause, the chart spec, template answers. S15 also renders the returned trace
+through the UI's "How this answer was produced" panel (Streamlit AppTest, no browser). The report lists
+pass or fail, the reason and the seconds per step; the exit code is 1 when any step fails. Demo threads are
+deleted at the end.
 Needs a running API (`make api` or `make demo`); the answers come from the configured LLM profile.
 
     python -m insurai.eval.demo_check [--only S01,S05] [--json eval/reports/demo_check.json]
@@ -20,6 +22,7 @@ from insurai.agent.prompts import template
 from insurai.api.client import ApiClient, ApiProblem, Event, Identity, TurnView
 from insurai.guardrails.verify import guarantee_hits
 from insurai.observability import get_logger
+from insurai.settings import ROOT
 from insurai.tools.messages import guardrails, refusal
 
 log = get_logger(__name__)
@@ -30,6 +33,14 @@ SUPERVISOR = Identity("supervisor", "demo")
 REVIEW_NOTE = "Hospital confirmed the admission by phone"
 DEMO_CLAIM = "CLM300210"
 DEMO_MISSING_DOCS = 4  # CLM300210: Claim Form, Discharge Summary, ID Proof, Prescription (AC-01-06)
+UI_DIR = ROOT / "ui"
+TRACE_PANEL_SCRIPT = """
+import sys
+import streamlit as st
+sys.path.insert(0, {ui_dir!r})
+from trace_panel import render_trace
+render_trace(st.session_state["trace"], key="demo-check")
+"""
 
 
 @dataclass
@@ -160,6 +171,27 @@ def check_maternity(turn: Turn, api: ApiClient) -> str | None:
         None if turn.count("token") > 0 else "no streamed tokens",
         _cites(turn, "Health Secure Plus §"),
         _contains(turn, "maternity"),
+    )
+
+
+def render_trace_panel(trace: list[dict[str, Any]]) -> str | None:
+    """Render the trace panel headlessly as the Chat page does; the first exception is the reason."""
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_string(TRACE_PANEL_SCRIPT.format(ui_dir=str(UI_DIR)), default_timeout=30)
+    at.session_state["trace"] = trace
+    at.run()
+    if at.exception:
+        return f"trace panel crashed: {at.exception[0].value}"
+    return None if any(e.label == "How this answer was produced" for e in at.expander) else "no trace panel"
+
+
+def check_customer_policy(turn: Turn, api: ApiClient) -> str | None:
+    """A customer's policy question: cited, with a trace the Chat page can render."""
+    return _first(
+        check_maternity(turn, api),
+        None if any(e.get("kind") == "intent" for e in turn.view.trace) else "no intent event in the trace",
+        render_trace_panel(turn.view.trace),
     )
 
 
@@ -342,6 +374,14 @@ STEPS: tuple[DemoStep, ...] = (
     ),
     DemoStep("S13", "Claim Dossier data for CLM300210", AGENT, True, check_dossier),
     DemoStep("S14", "Eval Dashboard data (calibration, ablation)", AGENT, True, check_eval_dashboard),
+    DemoStep(
+        "S15",
+        "Customer policy question with the trace panel",
+        CUSTOMER,
+        False,
+        check_customer_policy,
+        "What is the maternity waiting period under Health Secure Plus?",
+    ),
 )
 
 
